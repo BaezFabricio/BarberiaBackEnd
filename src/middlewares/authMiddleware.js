@@ -21,10 +21,10 @@ const authMiddleware = (req, res, next) => {
 
 // Middleware de rol: uso -> soloAdmin o soloRoles(['admin', 'barbero'])
 const soloRoles = (...roles) => (req, res, next) => {
-    if (!roles.includes(req.usuario?.rol)) {
-        return res.status(403).json({ error: 'No tenés permiso para esta acción.' });
-    }
-    next();
+    const rol = req.usuario?.rol;
+    // owner tiene acceso a todo
+    if (rol === 'owner' || roles.includes(rol)) return next();
+    return res.status(403).json({ error: 'No tenés permiso para esta acción.' });
 };
 
 module.exports = { authMiddleware, soloRoles };

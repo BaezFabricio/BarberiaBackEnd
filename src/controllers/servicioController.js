@@ -18,6 +18,9 @@ const crear = async (req, res) => {
     if (!nombre_servicio || !precio || !duracion_minutos) {
         return res.status(400).json({ error: 'nombre_servicio, precio y duracion_minutos son obligatorios.' });
     }
+    if (Number(duracion_minutos) < 30) {
+        return res.status(400).json({ error: 'La duración mínima es 30 minutos.' });
+    }
     try {
         const servicio = await Servicio.create({
             idbarberia: req.usuario.idbarberia,
@@ -36,7 +39,9 @@ const actualizar = async (req, res) => {
             where: { idservicio: req.params.id, idbarberia: req.usuario.idbarberia }
         });
         if (!servicio) return res.status(404).json({ error: 'Servicio no encontrado.' });
-
+        if (req.body.duracion_minutos !== undefined && Number(req.body.duracion_minutos) < 30) {
+            return res.status(400).json({ error: 'La duración mínima es 30 minutos.' });
+        }
         await servicio.update(req.body);
         res.json(servicio);
     } catch (error) {

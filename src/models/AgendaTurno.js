@@ -56,7 +56,7 @@ const AgendaTurno = sequelize.define('agenda_turno', {
         allowNull: false
     },
     estado: {
-        type: DataTypes.ENUM('pendiente', 'confirmado', 'atendido', 'ausente', 'cancelado', 'archivado'),
+        type: DataTypes.ENUM('pendiente', 'confirmado', 'atendido', 'cobrado', 'ausente', 'cancelado', 'archivado'),
         defaultValue: 'pendiente',
         allowNull: false
     },

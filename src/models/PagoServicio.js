@@ -44,6 +44,7 @@ const PagoServicio = sequelize.define('pago_servicio', {
 });
 
 PagoServicio.belongsTo(EmpresaBarberia, { foreignKey: 'idbarberia', onDelete: 'RESTRICT' });
-PagoServicio.belongsTo(AgendaTurno, { foreignKey: 'idagenda', onDelete: 'CASCADE' });
+PagoServicio.belongsTo(AgendaTurno, { foreignKey: 'idagenda', onDelete: 'CASCADE', as: 'agenda_turno' });
+AgendaTurno.hasOne(PagoServicio, { foreignKey: 'idagenda', as: 'pago' });
 
 module.exports = PagoServicio;

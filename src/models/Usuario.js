@@ -18,7 +18,7 @@ const Usuario = sequelize.define('usuario', {
         }
     },
     rol: {
-        type: DataTypes.ENUM('admin', 'barbero'),
+        type: DataTypes.ENUM('admin', 'barbero', 'owner'),
         allowNull: false
     },
     pin_acceso: {
@@ -43,7 +43,19 @@ const Usuario = sequelize.define('usuario', {
         type: DataTypes.ENUM('activo', 'inactivo'),
         defaultValue: 'activo',
         allowNull: false
-    }
+    },
+    puede_cobrar: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+        allowNull: false
+    },
+    puede_vender: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+        allowNull: false
+    },
+    reset_token: { type: DataTypes.STRING(100), allowNull: true },
+    reset_token_expira: { type: DataTypes.DATE, allowNull: true },
 });
 
 // Relación de Herencia: Un Usuario tiene datos de una Persona

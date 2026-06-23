@@ -25,8 +25,18 @@ const Notificaciones = sequelize.define('notificaciones', {
             key: 'idusuario'
         }
     },
+    tipo: {
+        type: DataTypes.ENUM('reserva', 'recordatorio', 'promocion', 'sistema', 'pago'),
+        defaultValue: 'sistema',
+        allowNull: false
+    },
+    titulo: {
+        type: DataTypes.STRING(100),
+        allowNull: false,
+        defaultValue: 'Notificación'
+    },
     mensaje: {
-        type: DataTypes.STRING(255),
+        type: DataTypes.STRING(500),
         allowNull: false
     },
     leido: {
