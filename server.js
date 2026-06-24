@@ -180,6 +180,10 @@ function iniciarCron() {
 
 // Función para conectar la BD y prender el servidor
 async function levantarServidor() {
+    app.listen(PORT, () => {
+        console.log(`🚀 Servidor escuchando en el puerto ${PORT}`);
+    });
+
     try {
         await sequelize.authenticate();
         console.log('✅ Conexión a la base de datos MySQL establecida correctamente.');
@@ -193,11 +197,6 @@ async function levantarServidor() {
             const [n] = await AgendaTurnoM.update({ estado: 'cobrado' }, { where: { idagenda: idsM, estado: 'atendido' } });
             if (n > 0) console.log(`🔄 Migración: ${n} turnos actualizados a 'cobrado'`);
         }
-
-        app.listen(PORT, () => {
-            console.log(`🚀 Servidor escuchando en el puerto ${PORT}`);
-            console.log(`🌍 Probá entrar a: http://localhost:${PORT}`);
-        });
 
         iniciarCron();
         iniciarWhatsApp();
