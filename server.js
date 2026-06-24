@@ -199,7 +199,7 @@ async function levantarServidor() {
         }
 
         iniciarCron();
-        iniciarWhatsApp();
+        if (process.env.WHATSAPP_ENABLED === 'true') iniciarWhatsApp();
     } catch (error) {
         console.error('❌ Error crítico: No se pudo conectar a la base de datos MySQL:', error);
     }
