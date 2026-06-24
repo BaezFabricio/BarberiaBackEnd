@@ -32,7 +32,7 @@ router.get('/mi-perfil', async (req, res) => {
         const usuario = await Usuario.findOne({
             where: { idusuario: req.usuario.idusuario },
             include: [{ model: Persona, attributes: ['nombre_completo', 'telefono', 'correo_electronico', 'foto_url'] }],
-            attributes: ['idusuario', 'rol', 'rating_promedio', 'comision_porcentaje', 'puede_cobrar', 'puede_vender'],
+            attributes: ['idusuario', 'rol', 'rating_promedio', 'comision_porcentaje', 'puede_cobrar', 'puede_vender', 'especialidades'],
         });
         if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado.' });
         res.json({
@@ -83,6 +83,15 @@ router.get('/mi-barberia', (req, res) => {
         telefono:            t.telefono ?? '',
         direccion:           t.direccion ?? '',
         correo_negocio:      t.correo_negocio ?? '',
+        slogan:              t.slogan ?? '',
+        color_portada:       t.color_portada ?? '#ffffff',
+        color_nombre_1:      t.color_nombre_1 ?? '#ffffff',
+        color_nombre_2:      t.color_nombre_2 ?? '#d4a843',
+        texto_portada_1:     t.texto_portada_1 ?? '',
+        texto_portada_2:     t.texto_portada_2 ?? '',
+        color_header_1:      t.color_header_1 ?? '#ffffff',
+        color_header_2:      t.color_header_2 ?? '#d4a843',
+        maps_embed:          t.maps_embed ?? '',
         // Horarios
         horario_lv_desde:    t.horario_lv_desde ?? '09:00',
         horario_lv_hasta:    t.horario_lv_hasta ?? '19:00',
@@ -115,7 +124,7 @@ router.put('/mi-barberia', soloRoles('admin'), async (req, res) => {
     const b = req.body;
     try {
         const fields = [
-            'nombre_negocio','color_primario','telefono','direccion','correo_negocio',
+            'nombre_negocio','color_primario','telefono','direccion','correo_negocio','slogan','color_portada','color_nombre_1','color_nombre_2','texto_portada_1','texto_portada_2','color_header_1','color_header_2','maps_embed',
             'horario_lv_desde','horario_lv_hasta','horario_sab_desde','horario_sab_hasta','domingo_cerrado',
             'duracion_turno','tiempo_cancelacion','tiempo_confirmacion','reservas_online','orden_llegada','dias_inactividad',
             'instagram','facebook','whatsapp_negocio',
@@ -142,7 +151,7 @@ router.get('/barberos', async (req, res) => {
                 attributes: ['nombre_completo', 'telefono', 'correo_electronico', 'foto_url']
             }],
             where: { estado: 'activo' },
-            attributes: ['idusuario', 'rol', 'rating_promedio', 'comision_porcentaje', 'puede_cobrar', 'puede_vender']
+            attributes: ['idusuario', 'rol', 'rating_promedio', 'comision_porcentaje', 'puede_cobrar', 'puede_vender', 'especialidades']
         });
         res.json(barberos);
     } catch (error) {
@@ -196,6 +205,7 @@ router.put('/barberos/:id', soloRoles('admin'), async (req, res) => {
         if (comision_porcentaje !== undefined) usuarioUpdates.comision_porcentaje = comision_porcentaje;
         if (req.body.puede_cobrar !== undefined) usuarioUpdates.puede_cobrar = req.body.puede_cobrar;
         if (req.body.puede_vender !== undefined) usuarioUpdates.puede_vender = req.body.puede_vender;
+        if (req.body.especialidades !== undefined) usuarioUpdates.especialidades = req.body.especialidades;
         if (Object.keys(usuarioUpdates).length) await barbero.update(usuarioUpdates);
         res.json({ mensaje: 'Barbero actualizado.' });
     } catch (err) {
@@ -796,7 +806,7 @@ router.post('/notificaciones/prueba-whatsapp', soloRoles('admin', 'owner'), asyn
 
 // Foto propia del barbero (cualquier barbero puede subir la suya)
 router.post('/mi-perfil/foto', (req, res) => {
-    makeUpload('barberos')(req, res, async (err) => {
+    makeUpload('barberos').single(req, res, async (err) => {
         if (err) return res.status(400).json({ error: err.message });
         if (!req.file) return res.status(400).json({ error: 'No se recibió ninguna imagen.' });
         try {
@@ -814,7 +824,7 @@ router.post('/mi-perfil/foto', (req, res) => {
 
 // Logo de la barbería
 router.post('/mi-barberia/logo', soloRoles('admin'), (req, res, next) => {
-    makeUpload('logos')(req, res, async (err) => {
+    makeUpload('logos').single(req, res, async (err) => {
         if (err) return res.status(400).json({ error: err.message });
         if (!req.file) return res.status(400).json({ error: 'No se recibió ninguna imagen.' });
         try {
@@ -829,9 +839,42 @@ router.post('/mi-barberia/logo', soloRoles('admin'), (req, res, next) => {
     });
 });
 
+// ── Carrusel ──────────────────────────────────────────────────────────────────
+const ImagenCarrusel = require('../models/ImagenCarrusel');
+
+router.get('/carrusel', soloRoles('admin'), async (req, res) => {
+    const imgs = await ImagenCarrusel.findAll({ where: { idbarberia: req.usuario.idbarberia }, order: [['orden', 'ASC'], ['idimagen', 'ASC']] });
+    res.json(imgs);
+});
+
+router.post('/carrusel', soloRoles('admin'), (req, res) => {
+    makeUpload('carrusel').multiple(req, res, async (err) => {
+        if (err) return res.status(400).json({ error: err.message });
+        const files = req.files ?? [];
+        if (files.length === 0) return res.status(400).json({ error: 'No se recibieron imágenes.' });
+        try {
+            let count = await ImagenCarrusel.count({ where: { idbarberia: req.usuario.idbarberia } });
+            const imgs = await Promise.all(files.map(f => ImagenCarrusel.create({ idbarberia: req.usuario.idbarberia, url: f.path, orden: count++ })));
+            res.json(imgs);
+        } catch (e) { res.status(500).json({ error: 'Error al guardar imágenes.' }); }
+    });
+});
+
+router.delete('/carrusel/:id', soloRoles('admin'), async (req, res) => {
+    try {
+        const img = await ImagenCarrusel.findOne({ where: { idimagen: req.params.id, idbarberia: req.usuario.idbarberia } });
+        if (!img) return res.status(404).json({ error: 'Imagen no encontrada.' });
+        const { cloudinary } = require('../middlewares/uploadMiddleware');
+        const publicId = img.url.split('/').slice(-2).join('/').replace(/\.[^.]+$/, '');
+        try { await cloudinary.uploader.destroy(publicId); } catch {}
+        await img.destroy();
+        res.json({ mensaje: 'Imagen eliminada.' });
+    } catch (e) { res.status(500).json({ error: 'Error al eliminar imagen.' }); }
+});
+
 // Foto de servicio
 router.post('/servicios/:id/imagen', soloRoles('admin'), (req, res, next) => {
-    makeUpload('servicios')(req, res, async (err) => {
+    makeUpload('servicios').single(req, res, async (err) => {
         if (err) return res.status(400).json({ error: err.message });
         if (!req.file) return res.status(400).json({ error: 'No se recibió ninguna imagen.' });
         try {
@@ -847,7 +890,7 @@ router.post('/servicios/:id/imagen', soloRoles('admin'), (req, res, next) => {
 
 // Foto de barbero
 router.post('/barberos/:id/foto', soloRoles('admin'), (req, res, next) => {
-    makeUpload('barberos')(req, res, async (err) => {
+    makeUpload('barberos').single(req, res, async (err) => {
         if (err) return res.status(400).json({ error: err.message });
         if (!req.file) return res.status(400).json({ error: 'No se recibió ninguna imagen.' });
         try {

@@ -14,10 +14,14 @@ const makeUpload = (folder) => {
         params: {
             folder: `barberia/${folder}`,
             allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
-            transformation: [{ width: 800, crop: 'limit' }],
+            transformation: [{ width: 1200, crop: 'limit' }],
         },
     });
-    return multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } }).single('imagen');
+    const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
+    return {
+        single:   upload.single('imagen'),
+        multiple: upload.array('imagenes', 20),
+    };
 };
 
 module.exports = { makeUpload, cloudinary };

@@ -56,6 +56,7 @@ const Usuario = sequelize.define('usuario', {
     },
     reset_token: { type: DataTypes.STRING(100), allowNull: true },
     reset_token_expira: { type: DataTypes.DATE, allowNull: true },
+    especialidades: { type: DataTypes.STRING(300), allowNull: true },
 });
 
 // Relación de Herencia: Un Usuario tiene datos de una Persona

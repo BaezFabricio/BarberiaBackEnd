@@ -19,6 +19,18 @@ const router = Router();
 router.post('/registro', registro);
 router.post('/login', login);
 
+router.get('/carrusel', async (req, res) => {
+    const { subdominio } = req.query;
+    if (!subdominio) return res.json([]);
+    try {
+        const barberia = await EmpresaBarberia.findOne({ where: { subdominio, estado_cuenta: 'activo' } });
+        if (!barberia) return res.json([]);
+        const ImagenCarrusel = require('../models/ImagenCarrusel');
+        const imgs = await ImagenCarrusel.findAll({ where: { idbarberia: barberia.idbarberia }, order: [['orden', 'ASC'], ['idimagen', 'ASC']] });
+        res.json(imgs);
+    } catch { res.json([]); }
+});
+
 // Devuelve los datos públicos de una barbería: info, servicios activos y barberos activos
 router.get('/barberia', async (req, res) => {
   try {
@@ -36,7 +48,7 @@ router.get('/barberia', async (req, res) => {
       Usuario.findAll({
         where: { rol: 'barbero', estado: 'activo' },
         include: [{ model: Persona, where: { idbarberia: barberia.idbarberia }, attributes: ['nombre_completo', 'foto_url'] }],
-        attributes: ['idusuario', 'rating_promedio'],
+        attributes: ['idusuario', 'rating_promedio', 'especialidades'],
       }),
     ]);
 
@@ -56,11 +68,21 @@ router.get('/barberia', async (req, res) => {
       instagram:           barberia.instagram ?? null,
       facebook:            barberia.facebook ?? null,
       whatsapp_negocio:    barberia.whatsapp_negocio ?? null,
+      slogan:              barberia.slogan ?? null,
+      color_portada:       barberia.color_portada ?? '#ffffff',
+      color_nombre_1:      barberia.color_nombre_1 ?? '#ffffff',
+      color_nombre_2:      barberia.color_nombre_2 ?? '#d4a843',
+      texto_portada_1:     barberia.texto_portada_1 ?? null,
+      texto_portada_2:     barberia.texto_portada_2 ?? null,
+      color_header_1:      barberia.color_header_1 ?? '#ffffff',
+      color_header_2:      barberia.color_header_2 ?? '#d4a843',
+      maps_embed:          barberia.maps_embed ?? null,
       reservas_online:     barberia.reservas_online ?? true,
       servicios,
       barberos: barberos.map(b => ({
         idusuario: b.idusuario,
         rating_promedio: b.rating_promedio,
+        especialidades: b.especialidades ?? null,
         nombre_completo: b.persona?.nombre_completo ?? b.Persona?.nombre_completo ?? '',
         foto_url: b.persona?.foto_url ?? b.Persona?.foto_url ?? null,
       })),
