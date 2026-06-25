@@ -1,10 +1,20 @@
 const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
 function crearTransporte(gmail, password) {
     return nodemailer.createTransport({
         service: 'gmail',
         auth: { user: gmail, pass: password },
     });
+}
+
+async function enviarEmail({ from, to, subject, html }) {
+    if (process.env.RESEND_API_KEY) {
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        await resend.emails.send({ from, to, subject, html });
+    } else {
+        throw new Error('No hay servicio de email configurado');
+    }
 }
 
 async function enviarConfirmacionTurno({ barberia, turno, cliente, servicio, barbero, tokenConfirmar, tokenCancelar }) {
@@ -92,9 +102,8 @@ async function enviarConfirmacionTurno({ barberia, turno, cliente, servicio, bar
 </body>
 </html>`;
 
-    const transporte = crearTransporte(barberia.gmail_remitente, barberia.gmail_password);
-    await transporte.sendMail({
-        from: `"${barberia.nombre_negocio}" <${barberia.gmail_remitente}>`,
+    await enviarEmail({
+        from: `${barberia.nombre_negocio} <onboarding@resend.dev>`,
         to: cliente.correo_electronico,
         subject: `Tu turno en ${barberia.nombre_negocio} — ${fechaFormateada}`,
         html,
@@ -136,9 +145,8 @@ async function enviarCancelacionTurno({ barberia, turno, cliente, servicio }) {
 </body>
 </html>`;
 
-    const transporte = crearTransporte(barberia.gmail_remitente, barberia.gmail_password);
-    await transporte.sendMail({
-        from: `"${barberia.nombre_negocio}" <${barberia.gmail_remitente}>`,
+    await enviarEmail({
+        from: `${barberia.nombre_negocio} <onboarding@resend.dev>`,
         to: cliente.correo_electronico,
         subject: `Turno cancelado — ${barberia.nombre_negocio}`,
         html,
@@ -159,9 +167,8 @@ async function enviarEmailPromo({ email, nombre, mensaje, barberia }) {
     </td></tr>
   </table>
 </body></html>`;
-    const transporte = crearTransporte(barberia.gmail_remitente, barberia.gmail_password);
-    await transporte.sendMail({
-        from: `"${barberia.nombre_negocio}" <${barberia.gmail_remitente}>`,
+    await enviarEmail({
+        from: `${barberia.nombre_negocio} <onboarding@resend.dev>`,
         to: email,
         subject: `Una propuesta para vos — ${barberia.nombre_negocio}`,
         html,
@@ -169,8 +176,7 @@ async function enviarEmailPromo({ email, nombre, mensaje, barberia }) {
 }
 
 async function enviarEmailRecuperacion({ correo, nombre, token, BASE_URL }) {
-    const transporter = crearTransporter();
-    const url = `${BASE_URL}/recuperar-password?token=${token}`;
+    const url = `${BASE_URL}/recuperar-password/resetear?token=${token}`;
     const html = `
     <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#fff;">
       <h2 style="font-size:20px;color:#111827;margin-bottom:8px;">Recuperar contraseña</h2>
@@ -178,7 +184,7 @@ async function enviarEmailRecuperacion({ correo, nombre, token, BASE_URL }) {
       <a href="${url}" style="display:inline-block;background:#d4a843;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:14px;">Cambiar contraseña</a>
       <p style="color:#9ca3af;font-size:12px;margin-top:24px;">Este link expira en 1 hora. Si no solicitaste este cambio, ignorá este mensaje.</p>
     </div>`;
-    await transporter.sendMail({ to: correo, subject: 'Recuperar contraseña', html });
+    await enviarEmail({ from: 'BarberSystem <onboarding@resend.dev>', to: correo, subject: 'Recuperar contraseña', html });
 }
 
 module.exports = { enviarConfirmacionTurno, enviarCancelacionTurno, enviarEmailPromo, enviarEmailRecuperacion };

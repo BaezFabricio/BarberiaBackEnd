@@ -786,10 +786,11 @@ router.post('/notificaciones/prueba-email', soloRoles('admin', 'owner'), async (
     try {
         const { enviarEmailPromo } = require('../services/emailService');
         const barberia = await EmpresaBarberia.findOne({ where: { idbarberia: req.usuario.idbarberia } });
-        if (!barberia?.gmail_remitente || !barberia?.gmail_password)
-            return res.status(400).json({ error: 'No hay credenciales de Gmail configuradas.' });
-        await enviarEmailPromo({ email: barberia.gmail_remitente, nombre: 'Administrador', mensaje: 'Este es un email de prueba desde tu sistema de barbería. ¡Todo funciona correctamente!', barberia });
-        res.json({ mensaje: 'Email de prueba enviado a ' + barberia.gmail_remitente });
+        const destinatario = barberia?.gmail_remitente || req.usuario.correo_electronico;
+        if (!destinatario)
+            return res.status(400).json({ error: 'No hay correo configurado.' });
+        await enviarEmailPromo({ email: destinatario, nombre: 'Administrador', mensaje: 'Este es un email de prueba desde tu sistema de barbería. ¡Todo funciona correctamente!', barberia: barberia ?? { nombre_negocio: 'BarberSystem', gmail_remitente: null, gmail_password: null } });
+        res.json({ mensaje: 'Email de prueba enviado a ' + destinatario });
     } catch (err) { console.error(err); res.status(500).json({ error: 'Error al enviar: ' + err.message }); }
 });
 
