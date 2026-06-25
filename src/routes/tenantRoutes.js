@@ -229,6 +229,37 @@ router.patch('/barberos/:id/estado', soloRoles('admin'), async (req, res) => {
     }
 });
 
+router.patch('/barberos/:id/password', soloRoles('admin'), async (req, res) => {
+    try {
+        const barbero = await Usuario.findOne({
+            include: [{ model: Persona, where: { idbarberia: req.usuario.idbarberia } }],
+            where: { idusuario: req.params.id }
+        });
+        if (!barbero) return res.status(404).json({ error: 'Barbero no encontrado.' });
+        const bcrypt = require('bcryptjs');
+        const hash = await bcrypt.hash(req.body.password, 10);
+        await barbero.update({ password_hash: hash });
+        res.json({ mensaje: 'Contraseña actualizada.' });
+    } catch (error) {
+        res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+});
+
+router.delete('/barberos/:id', soloRoles('admin'), async (req, res) => {
+    try {
+        const barbero = await Usuario.findOne({
+            include: [{ model: Persona, where: { idbarberia: req.usuario.idbarberia } }],
+            where: { idusuario: req.params.id }
+        });
+        if (!barbero) return res.status(404).json({ error: 'Barbero no encontrado.' });
+        await barbero.persona.destroy();
+        await barbero.destroy();
+        res.json({ mensaje: 'Barbero eliminado.' });
+    } catch (error) {
+        res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+});
+
 // ── Horarios de barberos ──────────────────────────────────────────────────────
 // GET /barberos/:id/horarios — devuelve los 7 días configurados para un barbero
 router.get('/barberos/:id/horarios', soloRoles('admin'), async (req, res) => {
