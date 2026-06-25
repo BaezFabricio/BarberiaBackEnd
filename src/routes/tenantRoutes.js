@@ -512,14 +512,21 @@ router.get('/pagos/resumen', soloRoles('admin'), async (req, res) => {
         const hoy = new Date().toISOString().split('T')[0];
         const desdeFecha = new Date((desde ?? hoy) + 'T00:00:00');
         const hastaFecha = new Date((hasta ?? hoy) + 'T23:59:59');
-        const pagos = await PagoServicio.findAll({
-            where: { idbarberia: req.usuario.idbarberia, fecha_pago: { [Op.between]: [desdeFecha, hastaFecha] } },
-        });
-        const total = pagos.reduce((s, p) => s + parseFloat(p.monto_pago), 0);
-        const efectivo = pagos.filter(p => p.metodo_pago === 'efectivo').reduce((s, p) => s + parseFloat(p.monto_pago), 0);
-        const transferencia = pagos.filter(p => p.metodo_pago === 'transferencia').reduce((s, p) => s + parseFloat(p.monto_pago), 0);
-        const tarjeta = pagos.filter(p => p.metodo_pago === 'tarjeta').reduce((s, p) => s + parseFloat(p.monto_pago), 0);
-        res.json({ total, efectivo, transferencia, tarjeta, cantidad: pagos.length });
+        const [pagos, ventas] = await Promise.all([
+            PagoServicio.findAll({
+                where: { idbarberia: req.usuario.idbarberia, fecha_pago: { [Op.between]: [desdeFecha, hastaFecha] } },
+            }),
+            VentaProducto.findAll({
+                where: { idbarberia: req.usuario.idbarberia, fecha_venta: { [Op.between]: [desdeFecha, hastaFecha] } },
+            }),
+        ]);
+        const sumar = (arr, campo) => arr.reduce((s, p) => s + parseFloat(p[campo] ?? 0), 0);
+        const filtrar = (arr, campo, metodo) => arr.filter(p => p.metodo_pago === metodo).reduce((s, p) => s + parseFloat(p[campo] ?? 0), 0);
+        const total = sumar(pagos, 'monto_pago') + sumar(ventas, 'monto_total');
+        const efectivo = filtrar(pagos, 'monto_pago', 'efectivo') + filtrar(ventas, 'monto_total', 'efectivo');
+        const transferencia = filtrar(pagos, 'monto_pago', 'transferencia') + filtrar(ventas, 'monto_total', 'transferencia');
+        const tarjeta = filtrar(pagos, 'monto_pago', 'tarjeta') + filtrar(ventas, 'monto_total', 'tarjeta');
+        res.json({ total, efectivo, transferencia, tarjeta, cantidad: pagos.length + ventas.length });
     } catch (err) { console.error(err); res.status(500).json({ error: 'Error interno.' }); }
 });
 
