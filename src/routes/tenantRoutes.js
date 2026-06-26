@@ -150,8 +150,7 @@ router.get('/barberos', async (req, res) => {
                 where: { idbarberia: req.usuario.idbarberia },
                 attributes: ['nombre_completo', 'telefono', 'correo_electronico', 'foto_url']
             }],
-            where: { estado: 'activo' },
-            attributes: ['idusuario', 'rol', 'rating_promedio', 'comision_porcentaje', 'puede_cobrar', 'puede_vender', 'especialidades']
+            attributes: ['idusuario', 'rol', 'rating_promedio', 'comision_porcentaje', 'puede_cobrar', 'puede_vender', 'especialidades', 'estado']
         });
         res.json(barberos);
     } catch (error) {
