@@ -76,6 +76,7 @@ router.get('/barberia', async (req, res) => {
       texto_portada_2:     barberia.texto_portada_2 ?? null,
       color_header_1:      barberia.color_header_1 ?? '#ffffff',
       color_header_2:      barberia.color_header_2 ?? '#d4a843',
+      fuente_header:       barberia.fuente_header ?? 'Cinzel',
       maps_embed:          barberia.maps_embed ?? null,
       reservas_online:     barberia.reservas_online ?? true,
       servicios,

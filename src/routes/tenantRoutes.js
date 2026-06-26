@@ -91,6 +91,7 @@ router.get('/mi-barberia', (req, res) => {
         texto_portada_2:     t.texto_portada_2 ?? '',
         color_header_1:      t.color_header_1 ?? '#ffffff',
         color_header_2:      t.color_header_2 ?? '#d4a843',
+        fuente_header:       t.fuente_header ?? 'Cinzel',
         maps_embed:          t.maps_embed ?? '',
         // Horarios
         horario_lv_desde:    t.horario_lv_desde ?? '09:00',
@@ -124,7 +125,7 @@ router.put('/mi-barberia', soloRoles('admin'), async (req, res) => {
     const b = req.body;
     try {
         const fields = [
-            'nombre_negocio','color_primario','telefono','direccion','correo_negocio','slogan','color_portada','color_nombre_1','color_nombre_2','texto_portada_1','texto_portada_2','color_header_1','color_header_2','maps_embed',
+            'nombre_negocio','color_primario','telefono','direccion','correo_negocio','slogan','color_portada','color_nombre_1','color_nombre_2','texto_portada_1','texto_portada_2','color_header_1','color_header_2','fuente_header','maps_embed',
             'horario_lv_desde','horario_lv_hasta','horario_sab_desde','horario_sab_hasta','domingo_cerrado',
             'duracion_turno','tiempo_cancelacion','tiempo_confirmacion','reservas_online','orden_llegada','dias_inactividad',
             'instagram','facebook','whatsapp_negocio',

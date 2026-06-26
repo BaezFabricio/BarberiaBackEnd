@@ -47,6 +47,7 @@ const EmpresaBarberia = sequelize.define('empresa_barberia', {
     texto_portada_2: { type: DataTypes.STRING(100), allowNull: true },
     color_header_1:  { type: DataTypes.STRING(7), allowNull: true, defaultValue: '#ffffff' },
     color_header_2:  { type: DataTypes.STRING(7), allowNull: true, defaultValue: '#d4a843' },
+    fuente_header:   { type: DataTypes.STRING(50), allowNull: true, defaultValue: 'Cinzel' },
     maps_embed:      { type: DataTypes.STRING(800), allowNull: true },
     // Horarios del local
     horario_lv_desde:      { type: DataTypes.STRING(5), allowNull: true, defaultValue: '09:00' },
