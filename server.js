@@ -198,6 +198,12 @@ async function levantarServidor() {
             if (n > 0) console.log(`🔄 Migración: ${n} turnos actualizados a 'cobrado'`);
         }
 
+        // Migraciones de columnas nuevas (ALTER TABLE seguro si ya existe)
+        try {
+            await sequelize.query("ALTER TABLE empresas_barberias ADD COLUMN fuente_header VARCHAR(50) DEFAULT 'Cinzel'");
+            console.log('🔄 Migración: columna fuente_header agregada');
+        } catch (e) { /* ya existe, ignorar */ }
+
         iniciarCron();
         if (process.env.WHATSAPP_ENABLED === 'true') iniciarWhatsApp();
     } catch (error) {
