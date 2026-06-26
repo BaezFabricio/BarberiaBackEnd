@@ -180,13 +180,15 @@ function iniciarCron() {
 
 // Función para conectar la BD y prender el servidor
 async function levantarServidor() {
-    app.listen(PORT, () => {
-        console.log(`🚀 Servidor escuchando en el puerto ${PORT}`);
-    });
-
     try {
         await sequelize.authenticate();
         console.log('✅ Conexión a la base de datos MySQL establecida correctamente.');
+
+        // Migraciones de columnas — correr ANTES de abrir el servidor
+        try {
+            await sequelize.query("ALTER TABLE empresa_barberia ADD COLUMN fuente_header VARCHAR(50) DEFAULT 'Cinzel'");
+            console.log('🔄 Migración: columna fuente_header agregada');
+        } catch (e) { /* ya existe, ignorar */ }
 
         // Migración: turnos atendidos con pago registrado → cobrado
         const AgendaTurnoM = require('./src/models/AgendaTurno');
@@ -198,17 +200,15 @@ async function levantarServidor() {
             if (n > 0) console.log(`🔄 Migración: ${n} turnos actualizados a 'cobrado'`);
         }
 
-        // Migraciones de columnas nuevas (ALTER TABLE seguro si ya existe)
-        try {
-            await sequelize.query("ALTER TABLE empresas_barberias ADD COLUMN fuente_header VARCHAR(50) DEFAULT 'Cinzel'");
-            console.log('🔄 Migración: columna fuente_header agregada');
-        } catch (e) { /* ya existe, ignorar */ }
-
         iniciarCron();
         if (process.env.WHATSAPP_ENABLED === 'true') iniciarWhatsApp();
     } catch (error) {
         console.error('❌ Error crítico: No se pudo conectar a la base de datos MySQL:', error);
     }
+
+    app.listen(PORT, () => {
+        console.log(`🚀 Servidor escuchando en el puerto ${PORT}`);
+    });
 }
 
 levantarServidor();
