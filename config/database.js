@@ -9,10 +9,13 @@ const sequelize = new Sequelize(
         host: process.env.DB_HOST,
         port: process.env.DB_PORT ? Number(process.env.DB_PORT) : 3306,
         dialect: 'mysql',
-        logging: false, // Evita que llene la consola de líneas de texto SQL transparentes
+        logging: false,
+        dialectOptions: process.env.DB_SSL === 'true' ? {
+            ssl: { rejectUnauthorized: false }
+        } : {},
         define: {
-            timestamps: false,    // Tu script SQL ya maneja las fechas a mano
-            freezeTableName: true // Evita que Sequelize te cambie los nombres de las tablas a plural
+            timestamps: false,
+            freezeTableName: true
         }
     }
 );
