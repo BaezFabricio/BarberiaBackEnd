@@ -16,14 +16,28 @@ const { notificarClienteNuevoTurno, notificarBarberoNuevoTurno } = require('../s
 
 const router = Router();
 
+// Resuelve la barbería activa por subdominio o por SINGLE_TENANT_ID si no se pasa subdominio
+async function resolverBarberia(subdominio, { transaction } = {}) {
+    if (!subdominio && process.env.SINGLE_TENANT_ID) {
+        return EmpresaBarberia.findOne({
+            where: { idbarberia: Number(process.env.SINGLE_TENANT_ID), estado_cuenta: 'activo' },
+            ...(transaction ? { transaction } : {}),
+        });
+    }
+    if (!subdominio) return null;
+    return EmpresaBarberia.findOne({
+        where: { subdominio, estado_cuenta: 'activo' },
+        ...(transaction ? { transaction } : {}),
+    });
+}
+
 router.post('/registro', registro);
 router.post('/login', login);
 
 router.get('/carrusel', async (req, res) => {
     const { subdominio } = req.query;
-    if (!subdominio) return res.json([]);
     try {
-        const barberia = await EmpresaBarberia.findOne({ where: { subdominio, estado_cuenta: 'activo' } });
+        const barberia = await resolverBarberia(subdominio);
         if (!barberia) return res.json([]);
         const ImagenCarrusel = require('../models/ImagenCarrusel');
         const imgs = await ImagenCarrusel.findAll({ where: { idbarberia: barberia.idbarberia }, order: [['orden', 'ASC'], ['idimagen', 'ASC']] });
@@ -35,9 +49,7 @@ router.get('/carrusel', async (req, res) => {
 router.get('/barberia', async (req, res) => {
   try {
     const { subdominio } = req.query;
-    if (!subdominio) return res.status(400).json({ error: 'subdominio requerido' });
-
-    const barberia = await EmpresaBarberia.findOne({ where: { subdominio, estado_cuenta: 'activo' } });
+    const barberia = await resolverBarberia(subdominio);
     if (!barberia) return res.status(404).json({ error: 'Barbería no encontrada' });
 
     const [servicios, barberos] = await Promise.all([
@@ -99,10 +111,10 @@ router.get('/barberia', async (req, res) => {
 router.get('/disponibilidad', async (req, res) => {
   try {
     const { subdominio, barbero_id, fecha, idservicio } = req.query;
-    if (!subdominio || !barbero_id || !fecha || !idservicio)
-      return res.status(400).json({ error: 'Faltan parámetros: subdominio, barbero_id, fecha, idservicio' });
+    if (!barbero_id || !fecha || !idservicio)
+      return res.status(400).json({ error: 'Faltan parámetros: barbero_id, fecha, idservicio' });
 
-    const barberia = await EmpresaBarberia.findOne({ where: { subdominio, estado_cuenta: 'activo' } });
+    const barberia = await resolverBarberia(subdominio);
     if (!barberia) return res.status(404).json({ error: 'Barbería no encontrada' });
 
     const servicio = await Servicio.findOne({
@@ -162,10 +174,10 @@ router.post('/reserva', async (req, res) => {
     else if (telefono_cliente.startsWith('54')) telefono_cliente = telefono_cliente.slice(2);
     if (telefono_cliente.startsWith('0')) telefono_cliente = telefono_cliente.slice(1);
 
-    if (!subdominio || !idservicio || !idusuario_barbero || !fecha || !hora_inicio || !nombre_cliente || !telefono_cliente)
+    if (!idservicio || !idusuario_barbero || !fecha || !hora_inicio || !nombre_cliente || !telefono_cliente)
       return res.status(400).json({ error: 'Faltan campos obligatorios' });
 
-    const barberia = await EmpresaBarberia.findOne({ where: { subdominio, estado_cuenta: 'activo' }, transaction: t });
+    const barberia = await resolverBarberia(subdominio, { transaction: t });
     if (!barberia) { await t.rollback(); return res.status(404).json({ error: 'Barbería no encontrada' }); }
     if (barberia.reservas_online === false) { await t.rollback(); return res.status(403).json({ error: 'Las reservas online están desactivadas.' }); }
 

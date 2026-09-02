@@ -13,6 +13,14 @@ const tenantMiddleware = async (req, res, next) => {
     try {
         let idbarberia = null;
 
+        // Modo single-tenant: carga la barbería fija sin resolver subdominio
+        if (process.env.SINGLE_TENANT_ID) {
+            const barberia = await EmpresaBarberia.findOne({
+                where: { idbarberia: Number(process.env.SINGLE_TENANT_ID), estado_cuenta: 'activo' },
+            });
+            if (barberia) { req.tenant = barberia; return next(); }
+        }
+
         // Estrategia 1: subdominio en el Host header
         const subdominio = extraerSubdominio(req.headers.host);
         if (subdominio && subdominio !== 'www') {

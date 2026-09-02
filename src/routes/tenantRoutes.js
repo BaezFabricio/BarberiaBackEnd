@@ -53,6 +53,23 @@ router.get('/mi-perfil', async (req, res) => {
     }
 });
 
+// ── Editar datos personales ───────────────────────────────────────────────────
+router.put('/mi-perfil', async (req, res) => {
+    const { nombre_completo, telefono } = req.body;
+    if (!nombre_completo) return res.status(400).json({ error: 'El nombre es obligatorio.' });
+    try {
+        const usuario = await Usuario.findByPk(req.usuario.idusuario);
+        await Persona.update(
+            { nombre_completo: nombre_completo.trim(), ...(telefono !== undefined ? { telefono: telefono.trim() } : {}) },
+            { where: { idpersona: usuario.idpersona } },
+        );
+        res.json({ mensaje: 'Datos actualizados.' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Error interno.' });
+    }
+});
+
 // ── Cambio de contraseña ──────────────────────────────────────────────────────
 router.put('/mi-perfil/password', async (req, res) => {
     const { password_actual, password_nueva } = req.body;
