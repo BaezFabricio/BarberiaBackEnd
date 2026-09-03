@@ -11,6 +11,9 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Render y la mayoría de plataformas cloud corren detrás de un proxy
+app.set('trust proxy', 1);
+
 // Headers de seguridad HTTP
 app.use(helmet());
 
