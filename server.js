@@ -190,6 +190,11 @@ async function levantarServidor() {
             console.log('🔄 Migración: columna fuente_header agregada');
         } catch (e) { /* ya existe, ignorar */ }
 
+        try {
+            await sequelize.query("ALTER TABLE gastos ADD COLUMN idusuario_barbero INT NULL");
+            console.log('🔄 Migración: columna idusuario_barbero en gastos agregada');
+        } catch (e) { /* ya existe, ignorar */ }
+
         // Migración: turnos atendidos con pago registrado → cobrado
         const AgendaTurnoM = require('./src/models/AgendaTurno');
         const PagoServicioM = require('./src/models/PagoServicio');

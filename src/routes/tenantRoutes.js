@@ -262,6 +262,23 @@ router.patch('/barberos/:id/password', soloRoles('admin'), async (req, res) => {
     }
 });
 
+router.patch('/barberos/:id/rol', soloRoles('admin'), async (req, res) => {
+    try {
+        const { rol } = req.body;
+        if (!['admin', 'barbero'].includes(rol))
+            return res.status(400).json({ error: 'Rol inválido. Debe ser admin o barbero.' });
+        const barbero = await Usuario.findOne({
+            include: [{ model: Persona, where: { idbarberia: req.usuario.idbarberia } }],
+            where: { idusuario: req.params.id }
+        });
+        if (!barbero) return res.status(404).json({ error: 'Barbero no encontrado.' });
+        await barbero.update({ rol });
+        res.json({ mensaje: 'Rol actualizado.' });
+    } catch (error) {
+        res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+});
+
 router.delete('/barberos/:id', soloRoles('admin'), async (req, res) => {
     try {
         const barbero = await Usuario.findOne({
@@ -765,17 +782,31 @@ router.get('/gastos', soloRoles('admin'), async (req, res) => {
             if (hasta) where.fecha_gasto[Op.lte] = hasta;
         }
         if (categoria && categoria !== 'all') where.categoria_gasto = categoria;
-        const data = await Gastos.findAll({ where, order: [['fecha_gasto', 'DESC']] });
+        const Persona = require('../models/Persona');
+        const data = await Gastos.findAll({
+            where,
+            order: [['fecha_gasto', 'DESC']],
+            include: [{
+                model: Usuario,
+                as: 'barbero',
+                required: false,
+                include: [{ model: Persona, attributes: ['nombre_completo'] }]
+            }]
+        });
         res.json(data);
     } catch (err) { console.error(err); res.status(500).json({ error: 'Error interno.' }); }
 });
 
 router.post('/gastos', soloRoles('admin'), async (req, res) => {
     try {
-        const { descripcion, monto, categoria_gasto, fecha_gasto } = req.body;
+        const { descripcion, monto, categoria_gasto, fecha_gasto, idusuario_barbero } = req.body;
         if (!descripcion || !monto || !categoria_gasto || !fecha_gasto)
             return res.status(400).json({ error: 'Faltan campos.' });
-        const g = await Gastos.create({ idbarberia: req.usuario.idbarberia, descripcion, monto, categoria_gasto, fecha_gasto });
+        const g = await Gastos.create({
+            idbarberia: req.usuario.idbarberia,
+            descripcion, monto, categoria_gasto, fecha_gasto,
+            idusuario_barbero: idusuario_barbero || null
+        });
         res.status(201).json(g);
     } catch (err) { console.error(err); res.status(500).json({ error: 'Error interno.' }); }
 });
@@ -784,8 +815,8 @@ router.put('/gastos/:id', soloRoles('admin'), async (req, res) => {
     try {
         const g = await Gastos.findOne({ where: { idgasto: req.params.id, idbarberia: req.usuario.idbarberia } });
         if (!g) return res.status(404).json({ error: 'No encontrado.' });
-        const { descripcion, monto, categoria_gasto, fecha_gasto } = req.body;
-        await g.update({ descripcion, monto, categoria_gasto, fecha_gasto });
+        const { descripcion, monto, categoria_gasto, fecha_gasto, idusuario_barbero } = req.body;
+        await g.update({ descripcion, monto, categoria_gasto, fecha_gasto, idusuario_barbero: idusuario_barbero || null });
         res.json(g);
     } catch (err) { console.error(err); res.status(500).json({ error: 'Error interno.' }); }
 });

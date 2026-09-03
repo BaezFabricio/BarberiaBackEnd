@@ -1,6 +1,7 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../../config/database');
 const EmpresaBarberia = require('./EmpresaBarberia');
+const Usuario = require('./Usuario');
 
 const Gastos = sequelize.define('gastos', {
     idgasto: {
@@ -32,6 +33,10 @@ const Gastos = sequelize.define('gastos', {
         type: DataTypes.DATEONLY,
         allowNull: false
     },
+    idusuario_barbero: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+    },
     fecha_registro: {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW
@@ -39,5 +44,6 @@ const Gastos = sequelize.define('gastos', {
 });
 
 Gastos.belongsTo(EmpresaBarberia, { foreignKey: 'idbarberia', onDelete: 'RESTRICT' });
+Gastos.belongsTo(Usuario, { foreignKey: 'idusuario_barbero', as: 'barbero', onDelete: 'SET NULL', constraints: false });
 
 module.exports = Gastos;
