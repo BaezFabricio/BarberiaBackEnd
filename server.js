@@ -14,13 +14,14 @@ const PORT = process.env.PORT || 3000;
 // Headers de seguridad HTTP
 app.use(helmet());
 
-// CORS — solo acepta el frontend configurado
+// CORS — acepta orígenes configurados + cualquier subdominio de Vercel del proyecto
 const originesPermitidos = (process.env.FRONTEND_URL ?? 'http://localhost:3001').split(',').map(u => u.trim());
+const VERCEL_PROJECT_PATTERN = process.env.VERCEL_PROJECT_PATTERN ? new RegExp(process.env.VERCEL_PROJECT_PATTERN) : null;
 app.use(cors({
     origin: (origin, callback) => {
-        // Permitir requests sin origin (mobile apps, Postman, server-to-server)
         if (!origin) return callback(null, true);
         if (originesPermitidos.includes(origin)) return callback(null, true);
+        if (VERCEL_PROJECT_PATTERN && VERCEL_PROJECT_PATTERN.test(origin)) return callback(null, true);
         callback(new Error('CORS: origen no permitido'));
     },
     credentials: true,
