@@ -11,15 +11,17 @@ function crearTransporte(gmail, password) {
 }
 
 async function enviarEmail({ from, to, subject, html, barberia }) {
-    if (process.env.RESEND_API_KEY) {
-        const resend = new Resend(process.env.RESEND_API_KEY);
-        await resend.emails.send({ from, to, subject, html });
-    } else if (barberia?.gmail_remitente && barberia?.gmail_password) {
+    // Gmail tiene prioridad cuando está configurado — Resend con onboarding@resend.dev
+    // solo puede enviar al email del dueño de la cuenta, no a clientes externos.
+    if (barberia?.gmail_remitente && barberia?.gmail_password) {
         const transporte = crearTransporte(barberia.gmail_remitente, barberia.gmail_password);
         await transporte.sendMail({
             from: `${barberia.nombre_negocio} <${barberia.gmail_remitente}>`,
             to, subject, html,
         });
+    } else if (process.env.RESEND_API_KEY) {
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        await resend.emails.send({ from, to, subject, html });
     } else {
         throw new Error('No hay servicio de email configurado');
     }
