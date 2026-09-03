@@ -6,6 +6,7 @@ function crearTransporte(gmail, password) {
         host: 'smtp.gmail.com',
         port: 465,
         secure: true,
+        family: 4, // IPv4 — Render no soporta IPv6 saliente
         auth: { user: gmail, pass: password },
         connectionTimeout: 10000,
         greetingTimeout: 10000,
