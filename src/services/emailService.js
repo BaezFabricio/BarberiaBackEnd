@@ -1,6 +1,5 @@
 const nodemailer = require('nodemailer');
 const { Resend } = require('resend');
-const sgMail = require('@sendgrid/mail');
 
 function crearTransporte(gmail, password) {
     return nodemailer.createTransport({
@@ -16,22 +15,48 @@ function crearTransporte(gmail, password) {
 }
 
 async function enviarEmail({ from, to, subject, html, barberia }) {
-    const fromAddr = barberia?.gmail_remitente
-        ? `${barberia.nombre_negocio} <${barberia.gmail_remitente}>`
-        : from;
+    const senderName  = barberia?.nombre_negocio ?? 'BarberSystem';
+    const senderEmail = barberia?.gmail_remitente ?? null;
 
-    if (process.env.SENDGRID_API_KEY) {
-        sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-        await sgMail.send({ from: fromAddr, to, subject, html });
-    } else if (barberia?.gmail_remitente && barberia?.gmail_password) {
+    if (process.env.BREVO_API_KEY) {
+        const body = {
+            sender:      { name: senderName, email: senderEmail ?? 'noreply@brevo.com' },
+            to:          [{ email: to }],
+            subject,
+            htmlContent: html,
+        };
+        const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+            method:  'POST',
+            headers: {
+                'accept':       'application/json',
+                'api-key':      process.env.BREVO_API_KEY,
+                'content-type': 'application/json',
+            },
+            body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+            const err = await res.text();
+            throw new Error(`Brevo error ${res.status}: ${err}`);
+        }
+        return;
+    }
+
+    if (barberia?.gmail_remitente && barberia?.gmail_password) {
         const transporte = crearTransporte(barberia.gmail_remitente, barberia.gmail_password);
-        await transporte.sendMail({ from: fromAddr, to, subject, html });
-    } else if (process.env.RESEND_API_KEY) {
+        await transporte.sendMail({
+            from: `${senderName} <${senderEmail}>`,
+            to, subject, html,
+        });
+        return;
+    }
+
+    if (process.env.RESEND_API_KEY) {
         const resend = new Resend(process.env.RESEND_API_KEY);
         await resend.emails.send({ from, to, subject, html });
-    } else {
-        throw new Error('No hay servicio de email configurado');
+        return;
     }
+
+    throw new Error('No hay servicio de email configurado');
 }
 
 async function enviarConfirmacionTurno({ barberia, turno, cliente, servicio, barbero, tokenConfirmar, tokenCancelar }) {
