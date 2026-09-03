@@ -128,10 +128,11 @@ function iniciarCron() {
 
     console.log('⏰ Cron de transiciones de turnos activo (cada 5 min)');
 
-    // Todos los días a las 10:00 — recordatorio WhatsApp 1 día antes
+    // Todos los días a las 10:00 — recordatorio email + WhatsApp 1 día antes
     cron.schedule('0 10 * * *', async () => {
         try {
             const { enviarRecordatorio } = require('./src/services/whatsappService');
+            const { enviarEmailRecordatorio } = require('./src/services/emailService');
             const EmpresaBarberia = require('./src/models/EmpresaBarberia');
             const Servicio = require('./src/models/Servicio');
             const Usuario = require('./src/models/Usuario');
@@ -146,7 +147,7 @@ function iniciarCron() {
                 where: { fecha: fechaManana, estado: 'confirmado' },
                 include: [
                     { model: Servicio, attributes: ['nombre_servicio', 'precio'] },
-                    { model: Cliente, include: [{ model: Persona, attributes: ['nombre_completo', 'telefono'] }] },
+                    { model: Cliente, include: [{ model: Persona, attributes: ['nombre_completo', 'telefono', 'correo_electronico'] }] },
                     { model: Usuario, as: 'barbero', include: [{ model: Persona, attributes: ['nombre_completo'] }] },
                 ],
             });
@@ -161,6 +162,7 @@ function iniciarCron() {
                 const clienteData = {
                     nombre_completo: personaCliente?.nombre_completo ?? '',
                     telefono: personaCliente?.telefono ?? '',
+                    correo_electronico: personaCliente?.correo_electronico ?? null,
                 };
                 const barberoData = { nombre_completo: personaBarbero?.nombre_completo ?? '' };
                 const servicioData = turno.Servicio ?? turno.servicio;
@@ -168,6 +170,10 @@ function iniciarCron() {
                 try {
                     await enviarRecordatorio({ barberia, turno, cliente: clienteData, servicio: servicioData, barbero: barberoData });
                 } catch (e) { console.error('Recordatorio WA error:', e.message); }
+
+                try {
+                    await enviarEmailRecordatorio({ barberia, turno, cliente: clienteData, servicio: servicioData, barbero: barberoData });
+                } catch (e) { console.error('Recordatorio email error:', e.message); }
             }
             console.log(`📱 Recordatorios enviados para ${turnos.length} turnos de mañana`);
         } catch (err) {
@@ -175,7 +181,7 @@ function iniciarCron() {
         }
     });
 
-    console.log('📱 Cron de recordatorios WhatsApp activo (10:00 AM diario)');
+    console.log('📱 Cron de recordatorios activo (10:00 AM diario — email + WhatsApp)');
 
 }
 
@@ -205,6 +211,16 @@ async function levantarServidor() {
             await sequelize.query("ALTER TABLE empresa_barberia ADD COLUMN greenapi_api_token VARCHAR(100) NULL");
             console.log('🔄 Migración: columna greenapi_api_token agregada');
         } catch (e) { /* ya existe, ignorar */ }
+
+        // Constraint único para evitar doble-reserva en el mismo slot (race condition)
+        try {
+            await sequelize.query(`
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_barbero_slot_activo
+                ON agenda_turnos (idusuario_barbero, fecha, hora_inicio)
+                WHERE estado IN ('pendiente', 'confirmado')
+            `);
+            console.log('🔒 Índice único de slots activos verificado');
+        } catch (e) { /* ya existe o DB no soporta, ignorar */ }
 
         // Migración: turnos atendidos con pago registrado → cobrado
         const AgendaTurnoM = require('./src/models/AgendaTurno');

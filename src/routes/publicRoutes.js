@@ -289,7 +289,7 @@ router.post('/reserva', async (req, res) => {
     // Enviar notificaciones en background respetando configuración
     setImmediate(async () => {
       if (barberia.notif_nueva_reserva !== false) {
-        try { await enviarConfirmacionTurno({ barberia, turno, cliente: clienteData, servicio, barbero: barberoData, tokenConfirmar, tokenCancelar }); } catch (e) { console.error('Email error:', e.message); }
+        try { await enviarConfirmacionTurno({ barberia, turno, cliente: clienteData, servicio, barbero: barberoData, tokenConfirmar, tokenCancelar }); } catch (e) { console.error('Email confirmacion error:', e); }
         try { await notificarClienteNuevoTurno({ barberia, turno, cliente: clienteData, servicio, barbero: barberoData }); } catch (e) { console.error('WA cliente error:', e.message); }
       }
       if (barberia.notif_barbero !== false) {
@@ -307,7 +307,11 @@ router.post('/reserva', async (req, res) => {
     });
   } catch (err) {
     await t.rollback();
-    console.error(err);
+    // Violación de constraint único → dos usuarios intentaron el mismo slot simultáneamente
+    if (err.name === 'SequelizeUniqueConstraintError' || err.original?.code === '23505') {
+      return res.status(409).json({ error: 'Ese horario ya no está disponible' });
+    }
+    console.error('Reserva error:', err);
     return res.status(500).json({ error: 'Error al crear la reserva' });
   }
 });

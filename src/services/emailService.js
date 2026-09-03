@@ -24,6 +24,7 @@ async function enviarEmail({ from, to, subject, html, barberia }) {
 }
 
 async function enviarConfirmacionTurno({ barberia, turno, cliente, servicio, barbero, tokenConfirmar, tokenCancelar }) {
+    if (!cliente?.correo_electronico) return;
     if (!process.env.RESEND_API_KEY && (!barberia.gmail_remitente || !barberia.gmail_password)) return;
 
     const fechaFormateada = new Date(turno.fecha + 'T12:00:00').toLocaleDateString('es-AR', {
@@ -252,4 +253,57 @@ async function enviarEmailRecuperacion({ correo, nombre, token, BASE_URL, barber
     await enviarEmail({ from: 'BarberSystem <onboarding@resend.dev>', to: correo, subject: 'Recuperar contraseña', html, barberia });
 }
 
-module.exports = { enviarConfirmacionTurno, enviarCancelacionTurno, enviarEmailPromo, enviarEmailRecuperacion, enviarEmailBarberoNuevoTurno };
+async function enviarEmailRecordatorio({ barberia, turno, cliente, servicio, barbero }) {
+    if (!cliente?.correo_electronico) return;
+    if (!process.env.RESEND_API_KEY && (!barberia.gmail_remitente || !barberia.gmail_password)) return;
+
+    const fechaFormateada = new Date(turno.fecha + 'T12:00:00').toLocaleDateString('es-AR', {
+        weekday: 'long', day: 'numeric', month: 'long'
+    });
+
+    const html = `
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 0;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+        <tr><td style="background:#1a1a1f;padding:28px 32px;text-align:center;">
+          <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">${barberia.nombre_negocio}</h1>
+          <p style="margin:6px 0 0;color:#d4a843;font-size:13px;">Recordatorio de turno</p>
+        </td></tr>
+        <tr><td style="padding:32px;">
+          <p style="margin:0 0 20px;font-size:15px;color:#374151;">
+            Hola <strong>${cliente.nombre_completo}</strong>, te recordamos que mañana tenés un turno.
+          </p>
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border-radius:8px;padding:20px;margin-bottom:20px;">
+            <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Servicio</td>
+                <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${servicio?.nombre_servicio ?? ''}</td></tr>
+            <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Barbero</td>
+                <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${barbero?.nombre_completo ?? ''}</td></tr>
+            <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Fecha</td>
+                <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${fechaFormateada}</td></tr>
+            <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Hora</td>
+                <td style="padding:6px 0;font-size:14px;color:#d4a843;font-weight:700;text-align:right;">${turno.hora_inicio.slice(0,5)} hs</td></tr>
+          </table>
+          <p style="font-size:13px;color:#6b7280;text-align:center;">Si no podés asistir, contactá al negocio para cancelar tu turno.</p>
+        </td></tr>
+        <tr><td style="background:#f9fafb;padding:16px 32px;text-align:center;border-top:1px solid #e5e7eb;">
+          <p style="margin:0;font-size:12px;color:#9ca3af;">${barberia.nombre_negocio} · Sistema de turnos online</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+    await enviarEmail({
+        from: `${barberia.nombre_negocio} <onboarding@resend.dev>`,
+        to: cliente.correo_electronico,
+        subject: `Recordatorio: tu turno mañana — ${barberia.nombre_negocio}`,
+        html, barberia,
+    });
+}
+
+module.exports = { enviarConfirmacionTurno, enviarCancelacionTurno, enviarEmailPromo, enviarEmailRecuperacion, enviarEmailBarberoNuevoTurno, enviarEmailRecordatorio };
