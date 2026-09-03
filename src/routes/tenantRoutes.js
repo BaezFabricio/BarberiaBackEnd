@@ -55,14 +55,19 @@ router.get('/mi-perfil', async (req, res) => {
 
 // ── Editar datos personales ───────────────────────────────────────────────────
 router.put('/mi-perfil', async (req, res) => {
-    const { nombre_completo, telefono } = req.body;
+    const { nombre_completo, telefono, correo_electronico } = req.body;
     if (!nombre_completo) return res.status(400).json({ error: 'El nombre es obligatorio.' });
     try {
         const usuario = await Usuario.findByPk(req.usuario.idusuario);
-        await Persona.update(
-            { nombre_completo: nombre_completo.trim(), ...(telefono !== undefined ? { telefono: telefono.trim() } : {}) },
-            { where: { idpersona: usuario.idpersona } },
-        );
+        const updates = { nombre_completo: nombre_completo.trim() };
+        if (telefono !== undefined) updates.telefono = telefono.trim();
+        if (correo_electronico && correo_electronico.trim()) {
+            const existente = await Persona.findOne({ where: { correo_electronico: correo_electronico.trim() } });
+            if (existente && existente.idpersona !== usuario.idpersona)
+                return res.status(409).json({ error: 'Ese correo ya está en uso.' });
+            updates.correo_electronico = correo_electronico.trim();
+        }
+        await Persona.update(updates, { where: { idpersona: usuario.idpersona } });
         res.json({ mensaje: 'Datos actualizados.' });
     } catch (err) {
         console.error(err);
