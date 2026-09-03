@@ -917,10 +917,19 @@ router.post('/notificaciones/prueba-email', soloRoles('admin', 'owner'), async (
     try {
         const { enviarEmailPromo } = require('../services/emailService');
         const barberia = await EmpresaBarberia.findOne({ where: { idbarberia: req.usuario.idbarberia } });
-        const destinatario = barberia?.gmail_remitente || req.usuario.correo_electronico;
+        // Usar credenciales del body (formulario sin guardar) o las guardadas en DB
+        const barberaEfectiva = {
+            ...(barberia?.dataValues ?? {}),
+            nombre_negocio: barberia?.nombre_negocio ?? 'BarberSystem',
+            gmail_remitente: req.body.gmail_remitente || barberia?.gmail_remitente || null,
+            gmail_password:  req.body.gmail_password  || barberia?.gmail_password  || null,
+        };
+        const destinatario = barberaEfectiva.gmail_remitente;
         if (!destinatario)
-            return res.status(400).json({ error: 'No hay correo configurado.' });
-        await enviarEmailPromo({ email: destinatario, nombre: 'Administrador', mensaje: 'Este es un email de prueba desde tu sistema de barbería. ¡Todo funciona correctamente!', barberia: barberia ?? { nombre_negocio: 'BarberSystem', gmail_remitente: null, gmail_password: null } });
+            return res.status(400).json({ error: 'Ingresá un correo remitente antes de probar.' });
+        if (!barberaEfectiva.gmail_password && !process.env.RESEND_API_KEY)
+            return res.status(400).json({ error: 'Ingresá la contraseña de aplicación antes de probar.' });
+        await enviarEmailPromo({ email: destinatario, nombre: 'Administrador', mensaje: 'Este es un email de prueba desde tu sistema de barbería. ¡Todo funciona correctamente!', barberia: barberaEfectiva });
         res.json({ mensaje: 'Email de prueba enviado a ' + destinatario });
     } catch (err) { console.error(err); res.status(500).json({ error: 'Error al enviar: ' + err.message }); }
 });
