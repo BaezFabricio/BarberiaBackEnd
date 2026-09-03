@@ -342,4 +342,33 @@ async function enviarEmailRecordatorio({ barberia, turno, cliente, servicio, bar
     });
 }
 
-module.exports = { enviarConfirmacionTurno, enviarCancelacionTurno, enviarEmailPromo, enviarEmailRecuperacion, enviarEmailBarberoNuevoTurno, enviarEmailRecordatorio };
+async function enviarEmailCalificacion({ barberia, turno, cliente, barbero, linkCalificar }) {
+    if (!cliente?.correo_electronico) return;
+    if (!process.env.BREVO_API_KEY && !process.env.RESEND_API_KEY && (!barberia?.gmail_remitente || !barberia?.gmail_password)) return;
+
+    const nombreBarberia = barberia?.nombre_negocio ?? 'Tu Barbería';
+    const nombreCliente  = cliente.nombre_completo?.split(' ')[0] ?? 'Cliente';
+    const nombreBarbero  = barbero?.nombre_completo ?? 'tu barbero';
+
+    const html = `
+    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;background:#0d0d0d;color:#f0f0f0;border-radius:12px;overflow:hidden;">
+      <div style="background:linear-gradient(135deg,#1a1a1a,#0d0d0d);padding:32px 32px 24px;text-align:center;border-bottom:1px solid #222;">
+        <h1 style="margin:0;font-size:22px;font-weight:700;color:#c9a227;">⭐ ¿Cómo estuvo tu visita?</h1>
+      </div>
+      <div style="padding:28px 32px;">
+        <p style="margin:0 0 12px;font-size:15px;">Hola <strong>${nombreCliente}</strong>,</p>
+        <p style="margin:0 0 20px;font-size:14px;color:#aaa;">Gracias por visitar <strong style="color:#f0f0f0;">${nombreBarberia}</strong>. Nos gustaría saber cómo fue tu experiencia con <strong style="color:#c9a227;">${nombreBarbero}</strong>.</p>
+        <div style="text-align:center;margin:28px 0;">
+          <a href="${linkCalificar}" style="display:inline-block;background:#c9a227;color:#0d0d0d;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:700;font-size:15px;">
+            Calificar mi turno
+          </a>
+        </div>
+        <p style="margin:0;font-size:12px;color:#555;text-align:center;">Este link es válido para una sola calificación.</p>
+      </div>
+    </div>`;
+
+    const subject = `¿Cómo estuvo tu visita a ${nombreBarberia}?`;
+    await enviarEmail({ from: `${nombreBarberia} <noreply@brevo.com>`, to: cliente.correo_electronico, subject, html, barberia });
+}
+
+module.exports = { enviarConfirmacionTurno, enviarCancelacionTurno, enviarEmailPromo, enviarEmailRecuperacion, enviarEmailBarberoNuevoTurno, enviarEmailRecordatorio, enviarEmailCalificacion };

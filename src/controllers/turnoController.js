@@ -163,6 +163,52 @@ const actualizarEstado = async (req, res) => {
 
         await turno.update({ estado });
         res.json({ mensaje: 'Estado actualizado.', turno });
+
+        // Al marcar como atendido, generar token de calificación y enviar email
+        if (estado === 'atendido') {
+            try {
+                const crypto = require('crypto');
+                const ValoracionBarbero = require('../models/ValoracionBarbero');
+                const EmpresaBarberia = require('../models/EmpresaBarberia');
+                const Cliente = require('../models/Cliente');
+                const Persona = require('../models/Persona');
+                const { enviarEmailCalificacion } = require('../services/emailService');
+
+                // Evitar duplicados si ya existe token para este turno
+                const yaExiste = await ValoracionBarbero.findOne({ where: { idagenda: turno.idagenda } });
+                if (!yaExiste) {
+                    const token = crypto.randomBytes(24).toString('hex');
+                    await ValoracionBarbero.create({
+                        idbarberia: turno.idbarberia,
+                        idusuario_barbero: turno.idusuario_barbero,
+                        idagenda: turno.idagenda,
+                        token,
+                    });
+
+                    const [barberia, clienteRow] = await Promise.all([
+                        EmpresaBarberia.findByPk(turno.idbarberia),
+                        turno.idcliente
+                            ? Cliente.findByPk(turno.idcliente, { include: [{ model: Persona, attributes: ['nombre_completo', 'correo_electronico'] }] })
+                            : null,
+                    ]);
+                    const barberoRow = await require('../models/Usuario').findByPk(turno.idusuario_barbero, {
+                        include: [{ model: Persona, attributes: ['nombre_completo'] }],
+                    });
+
+                    const frontendUrl = process.env.FRONTEND_URL?.split(',')[0]?.trim() ?? 'https://tu-barberia.com';
+                    const linkCalificar = `${frontendUrl}/calificar/${token}`;
+                    const cliente = {
+                        correo_electronico: clienteRow?.persona?.correo_electronico ?? clienteRow?.Persona?.correo_electronico ?? null,
+                        nombre_completo: clienteRow?.persona?.nombre_completo ?? clienteRow?.Persona?.nombre_completo ?? '',
+                    };
+                    const barbero = { nombre_completo: barberoRow?.persona?.nombre_completo ?? barberoRow?.Persona?.nombre_completo ?? '' };
+
+                    await enviarEmailCalificacion({ barberia, turno, cliente, barbero, linkCalificar });
+                }
+            } catch (e) {
+                console.error('Rating email error:', e.message);
+            }
+        }
     } catch (error) {
         console.error('Error al actualizar turno:', error);
         res.status(500).json({ error: 'Error interno del servidor.' });

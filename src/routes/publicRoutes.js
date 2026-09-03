@@ -12,6 +12,7 @@ const AgendaTurno = require('../models/AgendaTurno');
 const Cliente = require('../models/Cliente');
 const TurnoToken = require('../models/TurnoToken');
 const { enviarConfirmacionTurno, enviarCancelacionTurno, enviarEmailBarberoNuevoTurno } = require('../services/emailService');
+const ValoracionBarbero = require('../models/ValoracionBarbero');
 const { notificarClienteNuevoTurno, notificarBarberoNuevoTurno } = require('../services/whatsappService');
 
 const router = Router();
@@ -477,6 +478,88 @@ function generarSlots(rangos, duracionMin, turnosOcupados, fecha) {
     }
   }
   return slots;
+}
+
+// ── Valoraciones ─────────────────────────────────────────────────────────────
+
+// GET info del token antes de calificar (para mostrar nombre del barbero en la página)
+router.get('/calificar/:token', async (req, res) => {
+    try {
+        const val = await ValoracionBarbero.findOne({ where: { token: req.params.token } });
+        if (!val) return res.status(404).json({ error: 'Link inválido o expirado.' });
+        if (val.token_usado) return res.status(409).json({ error: 'Este turno ya fue calificado.' });
+
+        const barbero = await Usuario.findByPk(val.idusuario_barbero, {
+            include: [{ model: Persona, attributes: ['nombre_completo', 'foto_url'] }],
+        });
+        const barberia = await EmpresaBarberia.findByPk(val.idbarberia);
+        res.json({
+            barbero_nombre: barbero?.persona?.nombre_completo ?? barbero?.Persona?.nombre_completo ?? '',
+            barbero_foto:   barbero?.persona?.foto_url ?? barbero?.Persona?.foto_url ?? null,
+            barberia_nombre: barberia?.nombre_negocio ?? '',
+        });
+    } catch (err) { console.error(err); res.status(500).json({ error: 'Error interno.' }); }
+});
+
+// POST calificar con token (desde email)
+router.post('/calificar/:token', async (req, res) => {
+    try {
+        const { estrellas, comentario } = req.body;
+        if (!estrellas || estrellas < 1 || estrellas > 5)
+            return res.status(400).json({ error: 'Calificación inválida (1-5).' });
+
+        const val = await ValoracionBarbero.findOne({ where: { token: req.params.token } });
+        if (!val) return res.status(404).json({ error: 'Link inválido o expirado.' });
+        if (val.token_usado) return res.status(409).json({ error: 'Este turno ya fue calificado.' });
+
+        await val.update({ estrellas, comentario: comentario || null, token_usado: true });
+        await recalcularRating(val.idusuario_barbero);
+        res.json({ ok: true });
+    } catch (err) { console.error(err); res.status(500).json({ error: 'Error interno.' }); }
+});
+
+// POST calificar desde el landing (sin token)
+router.post('/valorar', async (req, res) => {
+    try {
+        const { idusuario_barbero, idbarberia, nombre_cliente, estrellas, comentario } = req.body;
+        if (!idusuario_barbero || !estrellas || estrellas < 1 || estrellas > 5)
+            return res.status(400).json({ error: 'Datos incompletos.' });
+
+        await ValoracionBarbero.create({
+            idbarberia: idbarberia ?? null,
+            idusuario_barbero,
+            estrellas,
+            comentario: comentario || null,
+            nombre_cliente: nombre_cliente || 'Anónimo',
+        });
+        await recalcularRating(idusuario_barbero);
+        res.json({ ok: true });
+    } catch (err) { console.error(err); res.status(500).json({ error: 'Error interno.' }); }
+});
+
+// GET últimas valoraciones de un barbero (para mostrar reseñas en landing)
+router.get('/valoraciones/:idusuario', async (req, res) => {
+    try {
+        const vals = await ValoracionBarbero.findAll({
+            where: { idusuario_barbero: req.params.idusuario, estrellas: { [Op.not]: null } },
+            order: [['created_at', 'DESC']],
+            limit: 10,
+            attributes: ['estrellas', 'comentario', 'nombre_cliente', 'created_at'],
+        });
+        const total = vals.length;
+        const promedio = total ? (vals.reduce((s, v) => s + v.estrellas, 0) / total).toFixed(1) : null;
+        res.json({ promedio, total, reseñas: vals });
+    } catch (err) { console.error(err); res.status(500).json({ error: 'Error interno.' }); }
+});
+
+async function recalcularRating(idusuario_barbero) {
+    const vals = await ValoracionBarbero.findAll({
+        where: { idusuario_barbero, estrellas: { [Op.not]: null } },
+        attributes: ['estrellas'],
+    });
+    if (!vals.length) return;
+    const avg = vals.reduce((s, v) => s + v.estrellas, 0) / vals.length;
+    await Usuario.update({ rating_promedio: parseFloat(avg.toFixed(2)) }, { where: { idusuario: idusuario_barbero } });
 }
 
 module.exports = router;

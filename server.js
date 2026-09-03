@@ -215,6 +215,25 @@ async function levantarServidor() {
             console.log('🔄 Migración: columna greenapi_api_token agregada');
         } catch (e) { /* ya existe, ignorar */ }
 
+        // Tabla de valoraciones de barberos
+        try {
+            await sequelize.query(`
+                CREATE TABLE IF NOT EXISTS valoraciones_barberos (
+                    idvaloracion SERIAL PRIMARY KEY,
+                    idbarberia INT,
+                    idusuario_barbero INT NOT NULL,
+                    idagenda INT UNIQUE,
+                    estrellas INT CHECK(estrellas BETWEEN 1 AND 5),
+                    comentario TEXT,
+                    nombre_cliente VARCHAR(100),
+                    token VARCHAR(64) UNIQUE,
+                    token_usado BOOLEAN DEFAULT false,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            `);
+            console.log('⭐ Tabla valoraciones_barberos verificada');
+        } catch (e) { console.error('Valoraciones migration:', e.message); }
+
         // Constraint único para evitar doble-reserva en el mismo slot (race condition)
         try {
             await sequelize.query(`
