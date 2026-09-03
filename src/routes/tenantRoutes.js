@@ -417,7 +417,7 @@ router.get('/clientes/inactivos', soloRoles('admin'), async (req, res) => {
     } catch (err) { console.error(err); res.status(500).json({ error: 'Error interno.' }); }
 });
 
-router.post('/clientes/enviar-promo', soloRoles('admin'), async (req, res) => {
+router.post('/clientes/enviar-promo', soloRoles('admin', 'barbero'), async (req, res) => {
     try {
         const { ids, mensaje } = req.body;
         if (!ids?.length || !mensaje) return res.status(400).json({ error: 'Faltan campos.' });
@@ -445,8 +445,8 @@ router.post('/clientes/enviar-promo', soloRoles('admin'), async (req, res) => {
             idbarberia: req.usuario.idbarberia,
             idusuario_barbero: req.usuario.idusuario,
             tipo: 'promocion',
-            titulo: 'Promo enviada a clientes inactivos',
-            mensaje: `Mensaje enviado a ${enviados} de ${clientes.length} clientes inactivos`,
+            titulo: 'Promo enviada a clientes',
+            mensaje: `Mensaje enviado a ${enviados} de ${clientes.length} clientes`,
         });
 
         res.json({ enviados, total: clientes.length });
