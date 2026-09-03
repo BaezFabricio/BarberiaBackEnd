@@ -139,7 +139,9 @@ router.get('/mi-barberia', (req, res) => {
         // Notificaciones
         gmail_remitente:     t.gmail_remitente ?? '',
         whatsapp_barbero:    t.whatsapp_barbero ?? '',
-        callmebot_apikey:    t.callmebot_apikey ?? '',
+        callmebot_apikey:      t.callmebot_apikey ?? '',
+        greenapi_instance_id:  t.greenapi_instance_id ?? '',
+        greenapi_api_token:    t.greenapi_api_token ?? '',
     });
 });
 
@@ -151,7 +153,7 @@ router.put('/mi-barberia', soloRoles('admin'), async (req, res) => {
             'horario_lv_desde','horario_lv_hasta','horario_sab_desde','horario_sab_hasta','domingo_cerrado',
             'duracion_turno','tiempo_cancelacion','tiempo_confirmacion','reservas_online','orden_llegada','dias_inactividad',
             'instagram','facebook','whatsapp_negocio',
-            'gmail_remitente','gmail_password','whatsapp_barbero','callmebot_apikey',
+            'gmail_remitente','gmail_password','whatsapp_barbero','callmebot_apikey','greenapi_instance_id','greenapi_api_token',
             'notif_nueva_reserva','notif_recordatorio','notif_barbero',
         ];
         const updates = {};
@@ -474,6 +476,44 @@ router.get('/turnos', turnoCtrl.listar);           // ?fecha=YYYY-MM-DD  (admin 
 router.get('/turnos/mis-turnos', turnoCtrl.listar); // ?fecha=YYYY-MM-DD  (barbero ve solo los suyos — el controller filtra por req.usuario)
 router.post('/turnos', turnoCtrl.crear);
 router.patch('/turnos/:id/estado', turnoCtrl.actualizarEstado);
+
+router.patch('/turnos/:id/cancelar', soloRoles('admin', 'barbero'), async (req, res) => {
+    try {
+        const AgendaTurno = require('../models/AgendaTurno');
+        const turno = await AgendaTurno.findOne({
+            where: { idagenda: req.params.id, idbarberia: req.usuario.idbarberia },
+            include: [
+                { model: Cliente, include: [{ model: Persona, attributes: ['nombre_completo', 'correo_electronico'] }] },
+                { model: Servicio, attributes: ['nombre_servicio'] },
+            ],
+        });
+        if (!turno) return res.status(404).json({ error: 'Turno no encontrado.' });
+        if (['cancelado', 'atendido', 'cobrado', 'archivado'].includes(turno.estado))
+            return res.status(400).json({ error: 'El turno ya no se puede cancelar.' });
+
+        const { motivo } = req.body;
+        await turno.update({ estado: 'cancelado' });
+
+        const { enviarCancelacionTurno } = require('../services/emailService');
+        const barberia = await EmpresaBarberia.findByPk(req.usuario.idbarberia);
+        const persona = turno.cliente?.Persona ?? turno.cliente?.persona;
+        if (persona?.correo_electronico) {
+            setImmediate(async () => {
+                try {
+                    await enviarCancelacionTurno({
+                        barberia,
+                        turno,
+                        cliente: { nombre_completo: persona.nombre_completo, correo_electronico: persona.correo_electronico },
+                        servicio: turno.Servicio ?? turno.servicio,
+                        motivo: motivo?.trim() || null,
+                    });
+                } catch (e) { console.error('Email cancelacion barbero error:', e.message); }
+            });
+        }
+
+        res.json({ mensaje: 'Turno cancelado.' });
+    } catch (err) { console.error(err); res.status(500).json({ error: 'Error interno.' }); }
+});
 
 // ── Pagos / Caja ─────────────────────────────────────────────────────────────
 router.get('/pagos', soloRoles('admin', 'barbero'), async (req, res) => {
@@ -889,9 +929,11 @@ router.post('/notificaciones/prueba-whatsapp', soloRoles('admin', 'owner'), asyn
     try {
         const { enviarMensajeLibre } = require('../services/whatsappService');
         const barberia = await EmpresaBarberia.findOne({ where: { idbarberia: req.usuario.idbarberia } });
+        if (!barberia?.greenapi_instance_id || !barberia?.greenapi_api_token)
+            return res.status(400).json({ error: 'Green API no configurada. Ingresá el Instance ID y API Token en Configuración.' });
         if (!barberia?.whatsapp_barbero)
-            return res.status(400).json({ error: 'No hay número de WhatsApp configurado.' });
-        await enviarMensajeLibre({ telefono: barberia.whatsapp_barbero, mensaje: `✅ Prueba de WhatsApp desde ${barberia.nombre_negocio}. ¡Todo funciona!`, barberia });
+            return res.status(400).json({ error: 'No hay número de WhatsApp del barbero configurado.' });
+        await enviarMensajeLibre({ telefono: barberia.whatsapp_barbero, mensaje: `✅ Prueba de WhatsApp desde ${barberia.nombre_negocio}. ¡Todo funciona con Green API!`, barberia });
         res.json({ mensaje: 'Mensaje de prueba enviado a ' + barberia.whatsapp_barbero });
     } catch (err) { console.error(err); res.status(500).json({ error: 'Error al enviar: ' + err.message }); }
 });

@@ -8,17 +8,23 @@ function crearTransporte(gmail, password) {
     });
 }
 
-async function enviarEmail({ from, to, subject, html }) {
+async function enviarEmail({ from, to, subject, html, barberia }) {
     if (process.env.RESEND_API_KEY) {
         const resend = new Resend(process.env.RESEND_API_KEY);
         await resend.emails.send({ from, to, subject, html });
+    } else if (barberia?.gmail_remitente && barberia?.gmail_password) {
+        const transporte = crearTransporte(barberia.gmail_remitente, barberia.gmail_password);
+        await transporte.sendMail({
+            from: `${barberia.nombre_negocio} <${barberia.gmail_remitente}>`,
+            to, subject, html,
+        });
     } else {
         throw new Error('No hay servicio de email configurado');
     }
 }
 
 async function enviarConfirmacionTurno({ barberia, turno, cliente, servicio, barbero, tokenConfirmar, tokenCancelar }) {
-    if (!barberia.gmail_remitente || !barberia.gmail_password) return;
+    if (!process.env.RESEND_API_KEY && (!barberia.gmail_remitente || !barberia.gmail_password)) return;
 
     const fechaFormateada = new Date(turno.fecha + 'T12:00:00').toLocaleDateString('es-AR', {
         weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
@@ -106,12 +112,12 @@ async function enviarConfirmacionTurno({ barberia, turno, cliente, servicio, bar
         from: `${barberia.nombre_negocio} <onboarding@resend.dev>`,
         to: cliente.correo_electronico,
         subject: `Tu turno en ${barberia.nombre_negocio} — ${fechaFormateada}`,
-        html,
+        html, barberia,
     });
 }
 
-async function enviarCancelacionTurno({ barberia, turno, cliente, servicio }) {
-    if (!barberia.gmail_remitente || !barberia.gmail_password) return;
+async function enviarCancelacionTurno({ barberia, turno, cliente, servicio, motivo }) {
+    if (!process.env.RESEND_API_KEY && (!barberia.gmail_remitente || !barberia.gmail_password)) return;
     if (!cliente.correo_electronico) return;
 
     const fechaFormateada = new Date(turno.fecha + 'T12:00:00').toLocaleDateString('es-AR', {
@@ -132,9 +138,14 @@ async function enviarCancelacionTurno({ barberia, turno, cliente, servicio }) {
         </td></tr>
         <tr><td style="padding:32px;">
           <p style="font-size:15px;color:#374151;">
-            Hola <strong>${cliente.nombre_completo}</strong>, tu turno del <strong>${fechaFormateada}</strong> a las <strong>${turno.hora_inicio.slice(0,5)} hs</strong> para <strong>${servicio.nombre_servicio}</strong> fue cancelado.
+            Hola <strong>${cliente.nombre_completo}</strong>, lamentablemente tu turno del <strong>${fechaFormateada}</strong> a las <strong>${turno.hora_inicio.slice(0,5)} hs</strong> para <strong>${servicio.nombre_servicio}</strong> fue cancelado.
           </p>
-          <p style="font-size:14px;color:#6b7280;">Si querés reservar otro turno podés hacerlo desde nuestra página.</p>
+          ${motivo ? `
+          <div style="background:#fef2f2;border-left:4px solid #dc2626;border-radius:4px;padding:12px 16px;margin:20px 0;">
+            <p style="margin:0;font-size:13px;color:#7f1d1d;font-weight:600;">Motivo:</p>
+            <p style="margin:4px 0 0;font-size:14px;color:#991b1b;">${motivo}</p>
+          </div>` : ''}
+          <p style="font-size:14px;color:#6b7280;">Podés reservar otro turno desde nuestra página cuando quieras. Disculpá las molestias.</p>
         </td></tr>
         <tr><td style="background:#f9fafb;padding:16px 32px;text-align:center;border-top:1px solid #e5e7eb;">
           <p style="margin:0;font-size:12px;color:#9ca3af;">${barberia.nombre_negocio} · Sistema de turnos online</p>
@@ -149,12 +160,12 @@ async function enviarCancelacionTurno({ barberia, turno, cliente, servicio }) {
         from: `${barberia.nombre_negocio} <onboarding@resend.dev>`,
         to: cliente.correo_electronico,
         subject: `Turno cancelado — ${barberia.nombre_negocio}`,
-        html,
+        html, barberia,
     });
 }
 
 async function enviarEmailPromo({ email, nombre, mensaje, barberia }) {
-    if (!barberia.gmail_remitente || !barberia.gmail_password) return;
+    if (!process.env.RESEND_API_KEY && (!barberia.gmail_remitente || !barberia.gmail_password)) return;
     const html = `<!DOCTYPE html><html><body style="font-family:sans-serif;background:#f5f5f5;padding:20px">
   <table width="600" align="center" style="background:#fff;border-radius:8px;overflow:hidden">
     <tr><td style="background:#1a1a1a;padding:24px;text-align:center">
@@ -171,11 +182,65 @@ async function enviarEmailPromo({ email, nombre, mensaje, barberia }) {
         from: `${barberia.nombre_negocio} <onboarding@resend.dev>`,
         to: email,
         subject: `Una propuesta para vos — ${barberia.nombre_negocio}`,
-        html,
+        html, barberia,
     });
 }
 
-async function enviarEmailRecuperacion({ correo, nombre, token, BASE_URL }) {
+async function enviarEmailBarberoNuevoTurno({ barberia, turno, cliente, servicio, barbero }) {
+    if (!process.env.RESEND_API_KEY && (!barberia.gmail_remitente || !barberia.gmail_password)) return;
+    if (!barbero.correo_electronico) return;
+
+    const fechaFormateada = new Date(turno.fecha + 'T12:00:00').toLocaleDateString('es-AR', {
+        weekday: 'long', day: 'numeric', month: 'long'
+    });
+
+    const html = `
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 0;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+        <tr><td style="background:#1a1a1f;padding:28px 32px;text-align:center;">
+          <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">${barberia.nombre_negocio}</h1>
+          <p style="margin:6px 0 0;color:#d4a843;font-size:13px;">Nuevo turno asignado</p>
+        </td></tr>
+        <tr><td style="padding:32px;">
+          <p style="margin:0 0 20px;font-size:15px;color:#374151;">
+            Hola <strong>${barbero.nombre_completo}</strong>, tenés un nuevo turno reservado.
+          </p>
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border-radius:8px;padding:20px;margin-bottom:20px;">
+            <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Cliente</td>
+                <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${cliente.nombre_completo}</td></tr>
+            <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Teléfono</td>
+                <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${cliente.telefono}</td></tr>
+            <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Servicio</td>
+                <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${servicio.nombre_servicio}</td></tr>
+            <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Fecha</td>
+                <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${fechaFormateada}</td></tr>
+            <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Hora</td>
+                <td style="padding:6px 0;font-size:14px;color:#d4a843;font-weight:700;text-align:right;">${turno.hora_inicio.slice(0,5)} hs</td></tr>
+          </table>
+        </td></tr>
+        <tr><td style="background:#f9fafb;padding:16px 32px;text-align:center;border-top:1px solid #e5e7eb;">
+          <p style="margin:0;font-size:12px;color:#9ca3af;">${barberia.nombre_negocio} · Sistema de turnos online</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+    await enviarEmail({
+        from: `${barberia.nombre_negocio} <onboarding@resend.dev>`,
+        to: barbero.correo_electronico,
+        subject: `Nuevo turno — ${cliente.nombre_completo} el ${fechaFormateada}`,
+        html, barberia,
+    });
+}
+
+async function enviarEmailRecuperacion({ correo, nombre, token, BASE_URL, barberia }) {
     const url = `${BASE_URL}/recuperar-password/resetear?token=${token}`;
     const html = `
     <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#fff;">
@@ -184,7 +249,7 @@ async function enviarEmailRecuperacion({ correo, nombre, token, BASE_URL }) {
       <a href="${url}" style="display:inline-block;background:#d4a843;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:14px;">Cambiar contraseña</a>
       <p style="color:#9ca3af;font-size:12px;margin-top:24px;">Este link expira en 1 hora. Si no solicitaste este cambio, ignorá este mensaje.</p>
     </div>`;
-    await enviarEmail({ from: 'BarberSystem <onboarding@resend.dev>', to: correo, subject: 'Recuperar contraseña', html });
+    await enviarEmail({ from: 'BarberSystem <onboarding@resend.dev>', to: correo, subject: 'Recuperar contraseña', html, barberia });
 }
 
-module.exports = { enviarConfirmacionTurno, enviarCancelacionTurno, enviarEmailPromo, enviarEmailRecuperacion };
+module.exports = { enviarConfirmacionTurno, enviarCancelacionTurno, enviarEmailPromo, enviarEmailRecuperacion, enviarEmailBarberoNuevoTurno };

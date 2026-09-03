@@ -11,7 +11,7 @@ const HorariosAtencion = require('../models/HorariosAtencion');
 const AgendaTurno = require('../models/AgendaTurno');
 const Cliente = require('../models/Cliente');
 const TurnoToken = require('../models/TurnoToken');
-const { enviarConfirmacionTurno, enviarCancelacionTurno } = require('../services/emailService');
+const { enviarConfirmacionTurno, enviarCancelacionTurno, enviarEmailBarberoNuevoTurno } = require('../services/emailService');
 const { notificarClienteNuevoTurno, notificarBarberoNuevoTurno } = require('../services/whatsappService');
 
 const router = Router();
@@ -58,7 +58,7 @@ router.get('/barberia', async (req, res) => {
         attributes: ['idservicio', 'nombre_servicio', 'descripcion', 'precio', 'duracion_minutos', 'imagen_url'],
       }),
       Usuario.findAll({
-        where: { rol: 'barbero', estado: 'activo' },
+        where: { rol: { [Op.in]: ['barbero', 'admin', 'owner'] }, estado: 'activo' },
         include: [{ model: Persona, where: { idbarberia: barberia.idbarberia }, attributes: ['nombre_completo', 'foto_url'] }],
         attributes: ['idusuario', 'rating_promedio', 'especialidades'],
       }),
@@ -188,7 +188,7 @@ router.post('/reserva', async (req, res) => {
     if (!servicio) { await t.rollback(); return res.status(404).json({ error: 'Servicio no encontrado' }); }
 
     const barbero = await Usuario.findOne({
-      where: { idusuario: idusuario_barbero, rol: 'barbero' },
+      where: { idusuario: idusuario_barbero, rol: { [Op.in]: ['barbero', 'admin', 'owner'] } },
       include: [{ model: Persona, where: { idbarberia: barberia.idbarberia }, attributes: ['nombre_completo', 'telefono', 'foto_url'] }],
       transaction: t,
     });
@@ -273,6 +273,7 @@ router.post('/reserva', async (req, res) => {
     const barberoData = {
       nombre_completo: barbero.Persona?.nombre_completo ?? barbero.persona?.nombre_completo ?? '',
       telefono: barbero.Persona?.telefono ?? barbero.persona?.telefono ?? null,
+      correo_electronico: barbero.Persona?.correo_electronico ?? barbero.persona?.correo_electronico ?? null,
     };
 
     // Registrar notificación interna
@@ -293,6 +294,7 @@ router.post('/reserva', async (req, res) => {
       }
       if (barberia.notif_barbero !== false) {
         try { await notificarBarberoNuevoTurno({ barberia, turno, cliente: clienteData, servicio, barbero: barberoData }); } catch (e) { console.error('WA barbero error:', e.message); }
+        try { await enviarEmailBarberoNuevoTurno({ barberia, turno, cliente: clienteData, servicio, barbero: barberoData }); } catch (e) { console.error('Email barbero error:', e.message); }
       }
     });
 
@@ -398,7 +400,8 @@ router.post('/recuperar-password', async (req, res) => {
 
         const { enviarEmailRecuperacion } = require('../services/emailService');
         const BASE_URL = process.env.FRONTEND_URL ?? 'http://localhost:3001';
-        await enviarEmailRecuperacion({ correo: correo_electronico, nombre: persona.nombre_completo, token, BASE_URL });
+        const barberia = await EmpresaBarberia.findOne({ where: { idbarberia: persona.idbarberia } });
+        await enviarEmailRecuperacion({ correo: correo_electronico, nombre: persona.nombre_completo, token, BASE_URL, barberia });
 
         res.json({ mensaje: 'Si el email existe, recibirás un link.' });
     } catch (err) {

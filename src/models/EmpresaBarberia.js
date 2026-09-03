@@ -73,8 +73,10 @@ const EmpresaBarberia = sequelize.define('empresa_barberia', {
     // Notificaciones
     gmail_remitente: { type: DataTypes.STRING(200), allowNull: true },
     gmail_password:  { type: DataTypes.STRING(200), allowNull: true },
-    whatsapp_barbero:{ type: DataTypes.STRING(20),  allowNull: true },
-    callmebot_apikey:{ type: DataTypes.STRING(50),  allowNull: true },
+    whatsapp_barbero:      { type: DataTypes.STRING(20),  allowNull: true },
+    callmebot_apikey:      { type: DataTypes.STRING(50),  allowNull: true },
+    greenapi_instance_id:  { type: DataTypes.STRING(50),  allowNull: true },
+    greenapi_api_token:    { type: DataTypes.STRING(100), allowNull: true },
     fecha_alta: {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW

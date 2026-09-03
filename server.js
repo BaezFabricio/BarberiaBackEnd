@@ -196,6 +196,16 @@ async function levantarServidor() {
             console.log('🔄 Migración: columna idusuario_barbero en gastos agregada');
         } catch (e) { /* ya existe, ignorar */ }
 
+        try {
+            await sequelize.query("ALTER TABLE empresa_barberia ADD COLUMN greenapi_instance_id VARCHAR(50) NULL");
+            console.log('🔄 Migración: columna greenapi_instance_id agregada');
+        } catch (e) { /* ya existe, ignorar */ }
+
+        try {
+            await sequelize.query("ALTER TABLE empresa_barberia ADD COLUMN greenapi_api_token VARCHAR(100) NULL");
+            console.log('🔄 Migración: columna greenapi_api_token agregada');
+        } catch (e) { /* ya existe, ignorar */ }
+
         // Migración: turnos atendidos con pago registrado → cobrado
         const AgendaTurnoM = require('./src/models/AgendaTurno');
         const PagoServicioM = require('./src/models/PagoServicio');
