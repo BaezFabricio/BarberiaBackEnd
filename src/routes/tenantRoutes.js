@@ -640,6 +640,57 @@ router.get('/pagos/resumen', soloRoles('admin'), async (req, res) => {
     } catch (err) { console.error(err); res.status(500).json({ error: 'Error interno.' }); }
 });
 
+// ── Comisiones por barbero ────────────────────────────────────────────────────
+router.get('/comisiones', soloRoles('admin'), async (req, res) => {
+    try {
+        const PagoServicio = require('../models/PagoServicio');
+        const AgendaTurno  = require('../models/AgendaTurno');
+        const { desde, hasta } = req.query;
+        const hoy = new Date().toISOString().split('T')[0];
+        const desdeFecha = new Date((desde ?? hoy) + 'T00:00:00');
+        const hastaFecha = new Date((hasta ?? hoy) + 'T23:59:59');
+
+        const pagos = await PagoServicio.findAll({
+            where: { idbarberia: req.usuario.idbarberia, fecha_pago: { [Op.between]: [desdeFecha, hastaFecha] } },
+            include: [{
+                model: AgendaTurno,
+                as: 'agenda_turno',
+                include: [{
+                    model: Usuario,
+                    as: 'barbero',
+                    attributes: ['idusuario', 'comision_porcentaje'],
+                    include: [{ model: Persona, attributes: ['nombre_completo'] }],
+                }],
+            }],
+        });
+
+        const map = {};
+        pagos.forEach(p => {
+            const barbero = p.agenda_turno?.barbero;
+            if (!barbero) return;
+            const id = barbero.idusuario;
+            if (!map[id]) {
+                map[id] = {
+                    idusuario:          id,
+                    nombre:             barbero.persona?.nombre_completo ?? 'Sin nombre',
+                    comision_porcentaje:parseFloat(barbero.comision_porcentaje ?? 0),
+                    turnos:             0,
+                    monto_generado:     0,
+                    monto_comision:     0,
+                };
+            }
+            map[id].turnos         += 1;
+            map[id].monto_generado += parseFloat(p.monto_pago);
+            map[id].monto_comision += parseFloat(p.monto_comision_barbero);
+        });
+
+        const barberos = Object.values(map).sort((a, b) => b.monto_comision - a.monto_comision);
+        const total_comisiones = barberos.reduce((s, b) => s + b.monto_comision, 0);
+
+        res.json({ barberos, total_comisiones });
+    } catch (err) { console.error(err); res.status(500).json({ error: 'Error interno.' }); }
+});
+
 // ── Ventas de productos ───────────────────────────────────────────────────────
 router.get('/ventas', soloRoles('admin', 'barbero'), async (req, res) => {
     try {
