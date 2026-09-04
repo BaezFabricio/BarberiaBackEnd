@@ -291,7 +291,7 @@ router.post('/reserva', async (req, res) => {
       }
       if (barberia.notif_barbero !== false) {
         try { await notificarBarberoNuevoTurno({ barberia, turno, cliente: clienteData, servicio, barbero: barberoData }); } catch (e) { console.error('WA barbero error:', e.message); }
-        try { await enviarEmailBarberoNuevoTurno({ barberia, turno, cliente: clienteData, servicio, barbero: barberoData }); } catch (e) { console.error('Email barbero error:', e.message); }
+        try { await enviarEmailBarberoNuevoTurno({ barberia, turno, cliente: clienteData, servicio, barbero: barberoData, tokenCancelar }); } catch (e) { console.error('Email barbero error:', e.message); }
       }
     });
 

@@ -223,13 +223,16 @@ async function enviarEmailPromo({ email, nombre, mensaje, barberia }) {
     });
 }
 
-async function enviarEmailBarberoNuevoTurno({ barberia, turno, cliente, servicio, barbero }) {
+async function enviarEmailBarberoNuevoTurno({ barberia, turno, cliente, servicio, barbero, tokenCancelar }) {
     if (!process.env.RESEND_API_KEY && (!barberia.gmail_remitente || !barberia.gmail_password)) return;
     if (!barbero.correo_electronico) return;
 
     const fechaFormateada = new Date(turno.fecha + 'T12:00:00').toLocaleDateString('es-AR', {
         weekday: 'long', day: 'numeric', month: 'long'
     });
+
+    const BASE_URL = process.env.BACKEND_URL ?? 'http://localhost:3000';
+    const urlCancelar = `${BASE_URL}/api/public/turno/cancelar?token=${tokenCancelar}`;
 
     const html = `
 <!DOCTYPE html>
@@ -247,7 +250,7 @@ async function enviarEmailBarberoNuevoTurno({ barberia, turno, cliente, servicio
           <p style="margin:0 0 20px;font-size:15px;color:#374151;">
             Hola <strong>${barbero.nombre_completo}</strong>, tenés un nuevo turno reservado.
           </p>
-          <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border-radius:8px;padding:20px;margin-bottom:20px;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border-radius:8px;padding:20px;margin-bottom:28px;">
             <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Cliente</td>
                 <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${cliente.nombre_completo}</td></tr>
             <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Teléfono</td>
@@ -259,6 +262,20 @@ async function enviarEmailBarberoNuevoTurno({ barberia, turno, cliente, servicio
             <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Hora</td>
                 <td style="padding:6px 0;font-size:14px;color:#d4a843;font-weight:700;text-align:right;">${turno.hora_inicio.slice(0,5)} hs</td></tr>
           </table>
+          ${tokenCancelar ? `
+          <p style="margin:0 0 16px;font-size:14px;color:#374151;">¿El cliente no puede asistir? Cancelá el turno:</p>
+          <table width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+              <td align="center">
+                <a href="${urlCancelar}" style="display:block;background:#dc2626;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-size:14px;font-weight:700;text-align:center;">
+                  ✗ Cancelar turno
+                </a>
+              </td>
+            </tr>
+          </table>
+          <p style="margin:24px 0 0;font-size:12px;color:#9ca3af;text-align:center;">
+            El botón expira en 48 horas.
+          </p>` : ''}
         </td></tr>
         <tr><td style="background:#f9fafb;padding:16px 32px;text-align:center;border-top:1px solid #e5e7eb;">
           <p style="margin:0;font-size:12px;color:#9ca3af;">${barberia.nombre_negocio} · Sistema de turnos online</p>
