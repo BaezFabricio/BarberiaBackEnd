@@ -1105,4 +1105,41 @@ router.post('/barberos/:id/foto', soloRoles('admin'), (req, res, next) => {
     });
 });
 
+// ── Galería landing ───────────────────────────────────────────────────────────
+const ImagenesGaleriaT = require('../models/ImagenesGaleria');
+
+router.get('/galeria', soloRoles('admin'), async (req, res) => {
+    const imgs = await ImagenesGaleriaT.findAll({
+        where: { idbarberia: req.usuario.idbarberia, tipo_seccion: 'landing_galeria' },
+        order: [['idimagen', 'ASC']],
+    });
+    res.json(imgs.map(i => ({ idimagen: i.idimagen, url: i.url_imagen })));
+});
+
+router.post('/galeria', soloRoles('admin'), (req, res) => {
+    makeUpload('galeria').multiple(req, res, async (err) => {
+        if (err) return res.status(400).json({ error: err.message });
+        const files = req.files ?? [];
+        if (files.length === 0) return res.status(400).json({ error: 'No se recibieron imágenes.' });
+        try {
+            const imgs = await Promise.all(files.map(f =>
+                ImagenesGaleriaT.create({ idbarberia: req.usuario.idbarberia, url_imagen: f.path, tipo_seccion: 'landing_galeria' })
+            ));
+            res.json(imgs.map(i => ({ idimagen: i.idimagen, url: i.url_imagen })));
+        } catch (e) { res.status(500).json({ error: 'Error al guardar imágenes.' }); }
+    });
+});
+
+router.delete('/galeria/:id', soloRoles('admin'), async (req, res) => {
+    try {
+        const img = await ImagenesGaleriaT.findOne({ where: { idimagen: req.params.id, idbarberia: req.usuario.idbarberia, tipo_seccion: 'landing_galeria' } });
+        if (!img) return res.status(404).json({ error: 'Imagen no encontrada.' });
+        const { cloudinary } = require('../middlewares/uploadMiddleware');
+        const publicId = img.url_imagen.split('/').slice(-2).join('/').replace(/\.[^.]+$/, '');
+        try { await cloudinary.uploader.destroy(publicId); } catch {}
+        await img.destroy();
+        res.json({ mensaje: 'Imagen eliminada.' });
+    } catch (e) { res.status(500).json({ error: 'Error al eliminar imagen.' }); }
+});
+
 module.exports = router;
