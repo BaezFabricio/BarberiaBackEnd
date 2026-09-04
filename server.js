@@ -52,6 +52,16 @@ app.get('/', (req, res) => {
     res.json({ mensaje: "Servidor Multi-tenant de Barberías corriendo con éxito 🚀" });
 });
 
+// Health check — UptimeRobot pinga esto cada 5 min para mantener Aiven activo
+app.get('/health', async (req, res) => {
+    try {
+        await sequelize.query('SELECT 1');
+        res.json({ status: 'ok', db: 'connected', ts: new Date().toISOString() });
+    } catch (e) {
+        res.status(503).json({ status: 'error', db: 'disconnected' });
+    }
+});
+
 // ── Cron: transiciones automáticas de estado ──────────────────────────────────
 function iniciarCron() {
     const AgendaTurno = require('./src/models/AgendaTurno');
