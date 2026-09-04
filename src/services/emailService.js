@@ -108,18 +108,20 @@ async function enviarConfirmacionTurno({ barberia, turno, cliente, servicio, bar
                 <td style="padding:6px 0;font-size:14px;color:#d4a843;font-weight:700;text-align:right;">$${Number(servicio.precio).toLocaleString('es-AR')}</td></tr>
           </table>
 
-          ${tokenConfirmar ? `
-          <!-- Botones -->
-          <p style="margin:0 0 16px;font-size:14px;color:#374151;">¿Podés asistir? Confirmá o cancelá tu turno:</p>
+          ${(tokenConfirmar || tokenCancelar) ? `
+          <p style="margin:0 0 16px;font-size:14px;color:#374151;">
+            ${tokenConfirmar ? '¿Podés asistir? Confirmá o cancelá tu turno:' : '¿No podés asistir? Cancelá tu turno:'}
+          </p>
           <table width="100%" cellpadding="0" cellspacing="0">
             <tr>
+              ${tokenConfirmar ? `
               <td width="48%" align="center">
                 <a href="${urlConfirmar}" style="display:block;background:#16a34a;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-size:14px;font-weight:700;text-align:center;">
                   ✓ Confirmar turno
                 </a>
               </td>
               <td width="4%"></td>
-              <td width="48%" align="center">
+              <td width="48%" align="center">` : '<td align="center">'}
                 <a href="${urlCancelar}" style="display:block;background:#dc2626;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-size:14px;font-weight:700;text-align:center;">
                   ✗ Cancelar turno
                 </a>
@@ -127,7 +129,7 @@ async function enviarConfirmacionTurno({ barberia, turno, cliente, servicio, bar
             </tr>
           </table>
           <p style="margin:24px 0 0;font-size:12px;color:#9ca3af;text-align:center;">
-            Los botones expiran en 48 horas. Si tenés dudas contactá al negocio directamente.
+            El botón expira en 48 horas. Si tenés dudas contactá al negocio directamente.
           </p>` : `
           <p style="margin:24px 0 0;font-size:13px;color:#6b7280;text-align:center;">
             Si tenés alguna duda, contactá al negocio directamente.
