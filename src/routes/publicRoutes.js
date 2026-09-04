@@ -190,7 +190,7 @@ router.post('/reserva', async (req, res) => {
 
     const barbero = await Usuario.findOne({
       where: { idusuario: idusuario_barbero, rol: { [Op.in]: ['barbero', 'admin', 'owner'] } },
-      include: [{ model: Persona, where: { idbarberia: barberia.idbarberia }, attributes: ['nombre_completo', 'telefono', 'foto_url'] }],
+      include: [{ model: Persona, where: { idbarberia: barberia.idbarberia }, attributes: ['nombre_completo', 'telefono', 'foto_url', 'correo_electronico'] }],
       transaction: t,
     });
     if (!barbero) { await t.rollback(); return res.status(404).json({ error: 'Barbero no encontrado' }); }
@@ -261,12 +261,8 @@ router.post('/reserva', async (req, res) => {
 
     // Generar tokens de confirmar/cancelar (expiran en 48hs)
     const expira = new Date(Date.now() + 48 * 60 * 60 * 1000);
-    const tokenConfirmar = crypto.randomBytes(32).toString('hex');
-    const tokenCancelar  = crypto.randomBytes(32).toString('hex');
-    await TurnoToken.bulkCreate([
-      { idagenda: turno.idagenda, token: tokenConfirmar, tipo: 'confirmar', expira_en: expira },
-      { idagenda: turno.idagenda, token: tokenCancelar,  tipo: 'cancelar',  expira_en: expira },
-    ]);
+    const tokenCancelar = crypto.randomBytes(32).toString('hex');
+    await TurnoToken.create({ idagenda: turno.idagenda, token: tokenCancelar, tipo: 'cancelar', expira_en: expira });
 
     // Datos para notificaciones
     // Usar el teléfono del formulario para notificaciones (puede haber cambiado)
@@ -290,7 +286,7 @@ router.post('/reserva', async (req, res) => {
     // Enviar notificaciones en background respetando configuración
     setImmediate(async () => {
       if (barberia.notif_nueva_reserva !== false) {
-        try { await enviarConfirmacionTurno({ barberia, turno, cliente: clienteData, servicio, barbero: barberoData, tokenConfirmar, tokenCancelar }); } catch (e) { console.error('Email confirmacion error:', e); }
+        try { await enviarConfirmacionTurno({ barberia, turno, cliente: clienteData, servicio, barbero: barberoData, tokenConfirmar: null, tokenCancelar }); } catch (e) { console.error('Email confirmacion error:', e); }
         try { await notificarClienteNuevoTurno({ barberia, turno, cliente: clienteData, servicio, barbero: barberoData }); } catch (e) { console.error('WA cliente error:', e.message); }
       }
       if (barberia.notif_barbero !== false) {
