@@ -211,6 +211,11 @@ async function levantarServidor() {
         } catch (e) { /* ya existe, ignorar */ }
 
         try {
+            await sequelize.query("ALTER TABLE empresa_barberia ADD COLUMN descripcion TEXT NULL");
+            console.log('🔄 Migración: columna descripcion agregada');
+        } catch (e) { /* ya existe, ignorar */ }
+
+        try {
             await sequelize.query("ALTER TABLE gastos ADD COLUMN idusuario_barbero INT NULL");
             console.log('🔄 Migración: columna idusuario_barbero en gastos agregada');
         } catch (e) { /* ya existe, ignorar */ }

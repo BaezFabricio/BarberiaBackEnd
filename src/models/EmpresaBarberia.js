@@ -40,6 +40,7 @@ const EmpresaBarberia = sequelize.define('empresa_barberia', {
     direccion:       { type: DataTypes.STRING(200), allowNull: true },
     correo_negocio:  { type: DataTypes.STRING(200), allowNull: true },
     slogan:          { type: DataTypes.STRING(150), allowNull: true },
+    descripcion:     { type: DataTypes.TEXT, allowNull: true },
     color_portada:   { type: DataTypes.STRING(7), allowNull: true, defaultValue: '#ffffff' },
     color_nombre_1:  { type: DataTypes.STRING(7), allowNull: true, defaultValue: '#ffffff' },
     color_nombre_2:  { type: DataTypes.STRING(7), allowNull: true, defaultValue: '#d4a843' },

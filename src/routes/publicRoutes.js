@@ -35,6 +35,20 @@ async function resolverBarberia(subdominio, { transaction } = {}) {
 router.post('/registro', registro);
 router.post('/login', login);
 
+router.get('/galeria', async (req, res) => {
+    const { subdominio } = req.query;
+    try {
+        const barberia = await resolverBarberia(subdominio);
+        if (!barberia) return res.json([]);
+        const ImagenesGaleria = require('../models/ImagenesGaleria');
+        const imgs = await ImagenesGaleria.findAll({
+            where: { idbarberia: barberia.idbarberia, tipo_seccion: 'landing_galeria' },
+            order: [['idimagen', 'ASC']],
+        });
+        res.json(imgs.map(i => ({ idimagen: i.idimagen, url: i.url_imagen })));
+    } catch { res.json([]); }
+});
+
 router.get('/carrusel', async (req, res) => {
     const { subdominio } = req.query;
     try {
@@ -82,6 +96,7 @@ router.get('/barberia', async (req, res) => {
       facebook:            barberia.facebook ?? null,
       whatsapp_negocio:    barberia.whatsapp_negocio ?? null,
       slogan:              barberia.slogan ?? null,
+      descripcion:         barberia.descripcion ?? null,
       color_portada:       barberia.color_portada ?? '#ffffff',
       color_nombre_1:      barberia.color_nombre_1 ?? '#ffffff',
       color_nombre_2:      barberia.color_nombre_2 ?? '#d4a843',
@@ -92,6 +107,7 @@ router.get('/barberia', async (req, res) => {
       fuente_header:       barberia.fuente_header ?? 'Cinzel',
       maps_embed:          barberia.maps_embed ?? null,
       reservas_online:     barberia.reservas_online ?? true,
+      tiempo_cancelacion:  barberia.tiempo_cancelacion ?? 60,
       servicios,
       barberos: barberos.map(b => ({
         idusuario: b.idusuario,
@@ -253,7 +269,7 @@ router.post('/reserva', async (req, res) => {
       fecha,
       hora_inicio,
       hora_fin,
-      estado: 'pendiente',
+      estado: 'confirmado',
       tipo_alta: 'web',
     }, { transaction: t });
 
