@@ -184,7 +184,7 @@ router.get('/disponibilidad', async (req, res) => {
 router.post('/reserva', async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { subdominio, idservicio, idusuario_barbero, fecha, hora_inicio, nombre_cliente, correo_electronico } = req.body;
+    const { subdominio, idservicio, servicios_adicionales, idusuario_barbero, fecha, hora_inicio, nombre_cliente, correo_electronico } = req.body;
     // Normalizar teléfono: solo dígitos, sin código de país argentino
     let telefono_cliente = (req.body.telefono_cliente ?? '').replace(/\D/g, '');
     if (telefono_cliente.startsWith('549')) telefono_cliente = telefono_cliente.slice(3);
@@ -204,6 +204,20 @@ router.post('/reserva', async (req, res) => {
     });
     if (!servicio) { await t.rollback(); return res.status(404).json({ error: 'Servicio no encontrado' }); }
 
+    // Cargar servicios adicionales del carrito
+    let duracionTotal = servicio.duracion_minutos;
+    let todosLosServicios = [servicio];
+    if (servicios_adicionales && Array.isArray(servicios_adicionales) && servicios_adicionales.length > 0) {
+      const extras = await Servicio.findAll({
+        where: { idservicio: servicios_adicionales, idbarberia: barberia.idbarberia, estado: 'activo' },
+        transaction: t,
+      });
+      for (const sv of extras) {
+        duracionTotal += sv.duracion_minutos;
+        todosLosServicios.push(sv);
+      }
+    }
+
     const barbero = await Usuario.findOne({
       where: { idusuario: idusuario_barbero, rol: { [Op.in]: ['barbero', 'admin', 'owner'] } },
       include: [{ model: Persona, where: { idbarberia: barberia.idbarberia }, attributes: ['nombre_completo', 'telefono', 'foto_url', 'correo_electronico'] }],
@@ -211,9 +225,9 @@ router.post('/reserva', async (req, res) => {
     });
     if (!barbero) { await t.rollback(); return res.status(404).json({ error: 'Barbero no encontrado' }); }
 
-    // Calcular hora_fin
+    // Calcular hora_fin sumando la duración de todos los servicios
     const [h, m] = hora_inicio.split(':').map(Number);
-    const finMin = h * 60 + m + servicio.duracion_minutos;
+    const finMin = h * 60 + m + duracionTotal;
     const hora_fin = `${String(Math.floor(finMin / 60)).padStart(2, '0')}:${String(finMin % 60).padStart(2, '0')}`;
 
     // Verificar que el slot sigue disponible
@@ -266,6 +280,7 @@ router.post('/reserva', async (req, res) => {
       idcliente: cliente.idcliente,
       idusuario_barbero,
       idservicio,
+      servicios_ids: todosLosServicios.map(s => s.idservicio),
       fecha,
       hora_inicio,
       hora_fin,
@@ -296,7 +311,7 @@ router.post('/reserva', async (req, res) => {
       idusuario_barbero: turno.idusuario_barbero,
       tipo: 'reserva',
       titulo: 'Nueva reserva online',
-      mensaje: `${clienteData.nombre_completo} — ${servicio.nombre_servicio} el ${turno.fecha} a las ${turno.hora_inicio.slice(0,5)}`,
+      mensaje: `${clienteData.nombre_completo} — ${todosLosServicios.map(s => s.nombre_servicio).join(' + ')} el ${turno.fecha} a las ${turno.hora_inicio.slice(0,5)}`,
     });
 
     // Enviar notificaciones en background respetando configuración

@@ -43,6 +43,10 @@ const AgendaTurno = sequelize.define('agenda_turno', {
             key: 'idservicio'
         }
     },
+    servicios_ids: {
+        type: DataTypes.JSON,
+        allowNull: true,
+    },
     fecha: {
         type: DataTypes.DATEONLY, // DATEONLY guarda solo YYYY-MM-DD sin hora
         allowNull: false

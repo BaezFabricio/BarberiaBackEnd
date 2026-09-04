@@ -155,6 +155,7 @@ CREATE TABLE IF NOT EXISTS `agenda_turno` (
   `idcliente`         INT      NULL,
   `idusuario_barbero` INT      NOT NULL,
   `idservicio`        INT      NOT NULL,
+  `servicios_ids`     JSON     NULL,
   `fecha`             DATE     NOT NULL,
   `hora_inicio`       TIME     NOT NULL,
   `hora_fin`          TIME     NOT NULL,
