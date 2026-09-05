@@ -1142,4 +1142,47 @@ router.delete('/galeria/:id', soloRoles('admin'), async (req, res) => {
     } catch (e) { res.status(500).json({ error: 'Error al eliminar imagen.' }); }
 });
 
+// ── Retiros de caja ──────────────────────────────────────────────────────────
+
+router.get('/retiros', soloRoles('admin'), async (req, res) => {
+    try {
+        const RetiroCaja = require('../models/RetiroCaja');
+        const Usuario    = require('../models/Usuario');
+        const Persona    = require('../models/Persona');
+        const retiros = await RetiroCaja.findAll({
+            where: { idbarberia: req.usuario.idbarberia },
+            include: [{ model: Usuario, as: 'barbero', include: [{ model: Persona, attributes: ['nombre_completo'] }] }],
+            order: [['fecha_retiro', 'DESC']],
+        });
+        res.json(retiros);
+    } catch (e) { console.error(e); res.status(500).json({ error: 'Error interno.' }); }
+});
+
+router.post('/retiros', soloRoles('admin'), async (req, res) => {
+    try {
+        const RetiroCaja = require('../models/RetiroCaja');
+        const { idusuario_barbero, monto, descripcion } = req.body;
+        if (!idusuario_barbero || !monto) return res.status(400).json({ error: 'idusuario_barbero y monto son obligatorios.' });
+        const retiro = await RetiroCaja.create({
+            idbarberia: req.usuario.idbarberia,
+            idusuario_barbero,
+            monto,
+            descripcion: descripcion || null,
+            estado: 'pendiente',
+        });
+        res.status(201).json(retiro);
+    } catch (e) { console.error(e); res.status(500).json({ error: 'Error interno.' }); }
+});
+
+router.patch('/retiros/:id/cobrar', soloRoles('admin'), async (req, res) => {
+    try {
+        const RetiroCaja = require('../models/RetiroCaja');
+        const retiro = await RetiroCaja.findOne({ where: { idretiro: req.params.id, idbarberia: req.usuario.idbarberia } });
+        if (!retiro) return res.status(404).json({ error: 'Retiro no encontrado.' });
+        if (retiro.estado === 'devuelto') return res.status(400).json({ error: 'Ya fue devuelto.' });
+        await retiro.update({ estado: 'devuelto', fecha_devolucion: new Date() });
+        res.json(retiro);
+    } catch (e) { console.error(e); res.status(500).json({ error: 'Error interno.' }); }
+});
+
 module.exports = router;

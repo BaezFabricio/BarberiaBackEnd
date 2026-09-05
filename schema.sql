@@ -302,4 +302,23 @@ CREATE TABLE IF NOT EXISTS `turno_token` (
   PRIMARY KEY (`idtoken`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- ------------------------------------------------------------
+-- retiro_caja
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `retiro_caja` (
+  `idretiro`           INT            NOT NULL AUTO_INCREMENT,
+  `idbarberia`         INT            NOT NULL,
+  `idusuario_barbero`  INT            NOT NULL,
+  `monto`              DECIMAL(10,2)  NOT NULL,
+  `descripcion`        VARCHAR(200)   NULL,
+  `estado`             ENUM('pendiente','devuelto') NOT NULL DEFAULT 'pendiente',
+  `fecha_retiro`       DATETIME       NULL DEFAULT CURRENT_TIMESTAMP,
+  `fecha_devolucion`   DATETIME       NULL,
+  `createdAt`          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updatedAt`          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`idretiro`),
+  CONSTRAINT `fk_retiro_barberia` FOREIGN KEY (`idbarberia`)        REFERENCES `empresa_barberia`(`idbarberia`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_retiro_barbero`  FOREIGN KEY (`idusuario_barbero`) REFERENCES `usuario`(`idusuario`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 SET FOREIGN_KEY_CHECKS = 1;
