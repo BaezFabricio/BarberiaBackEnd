@@ -903,6 +903,21 @@ router.get('/reportes', soloRoles('admin'), async (req, res) => {
 router.get('/productos', productoCtrl.listar);
 router.post('/productos', soloRoles('admin'), productoCtrl.crear);
 router.put('/productos/:id', soloRoles('admin'), productoCtrl.actualizar);
+router.delete('/productos/:id', soloRoles('admin'), async (req, res) => {
+    try {
+        const VentaProducto = require('../models/VentaProducto');
+        const Producto = require('../models/Producto');
+        const prod = await Producto.findOne({ where: { idproducto: req.params.id, idbarberia: req.usuario.idbarberia } });
+        if (!prod) return res.status(404).json({ error: 'Producto no encontrado.' });
+        const ventas = await VentaProducto.count({ where: { idproducto: req.params.id } });
+        if (ventas > 0) return res.status(409).json({ error: 'No se puede eliminar: el producto tiene ventas registradas.' });
+        await prod.destroy();
+        res.json({ mensaje: 'Producto eliminado.' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+});
 
 // ── Gastos ────────────────────────────────────────────────────────────────────
 const Gastos = require('../models/Gastos');
