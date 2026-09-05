@@ -44,7 +44,9 @@ const listar = async (req, res) => {
 };
 
 const crear = async (req, res) => {
-    const { idcliente, nombre_cliente, correo_electronico, idservicio, fecha, hora_inicio, hora_fin, tipo_alta } = req.body;
+    const { idcliente, nombre_cliente, correo_electronico, fecha, hora_inicio, hora_fin, tipo_alta } = req.body;
+    const servicios_ids = Array.isArray(req.body.servicios_ids) ? req.body.servicios_ids : null;
+    const idservicio = req.body.idservicio ?? (servicios_ids?.[0] ?? null);
     const idusuario_barbero = req.body.idusuario_barbero ?? req.usuario.idusuario;
     let telefono_cliente = (req.body.telefono_cliente ?? '').replace(/\D/g, '');
     if (telefono_cliente.startsWith('549')) telefono_cliente = telefono_cliente.slice(3);
@@ -97,7 +99,8 @@ const crear = async (req, res) => {
             idbarberia: req.usuario.idbarberia,
             idcliente: clienteId,
             idusuario_barbero, idservicio, fecha, hora_inicio, hora_fin,
-            tipo_alta: tipo_alta || 'orden_de_llegada'
+            tipo_alta: tipo_alta || 'orden_de_llegada',
+            servicios_ids: servicios_ids ?? (idservicio ? [idservicio] : []),
         }, { transaction: t });
 
         await t.commit();
