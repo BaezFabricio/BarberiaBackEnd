@@ -523,7 +523,7 @@ router.get('/pagos', soloRoles('admin', 'barbero'), async (req, res) => {
         const AgendaTurno  = require('../models/AgendaTurno');
         const Cliente      = require('../models/Cliente');
         const { desde, hasta } = req.query;
-        const where = { idbarberia: req.usuario.idbarberia };
+        const where = { idbarberia: req.usuario.idbarberia, archivado: false };
         if (desde || hasta) {
             where.fecha_pago = {};
             if (desde) where.fecha_pago[Op.gte] = new Date(desde + 'T00:00:00');
@@ -625,10 +625,10 @@ router.get('/pagos/resumen', soloRoles('admin'), async (req, res) => {
         const hastaFecha = new Date((hasta ?? hoy) + 'T23:59:59');
         const [pagos, ventas] = await Promise.all([
             PagoServicio.findAll({
-                where: { idbarberia: req.usuario.idbarberia, fecha_pago: { [Op.between]: [desdeFecha, hastaFecha] } },
+                where: { idbarberia: req.usuario.idbarberia, archivado: false, fecha_pago: { [Op.between]: [desdeFecha, hastaFecha] } },
             }),
             VentaProducto.findAll({
-                where: { idbarberia: req.usuario.idbarberia, fecha_venta: { [Op.between]: [desdeFecha, hastaFecha] } },
+                where: { idbarberia: req.usuario.idbarberia, archivado: false, fecha_venta: { [Op.between]: [desdeFecha, hastaFecha] } },
             }),
         ]);
         const sumar = (arr, campo) => arr.reduce((s, p) => s + parseFloat(p[campo] ?? 0), 0);
@@ -652,7 +652,7 @@ router.get('/comisiones', soloRoles('admin'), async (req, res) => {
         const hastaFecha = new Date((hasta ?? hoy) + 'T23:59:59');
 
         const pagos = await PagoServicio.findAll({
-            where: { idbarberia: req.usuario.idbarberia, fecha_pago: { [Op.between]: [desdeFecha, hastaFecha] } },
+            where: { idbarberia: req.usuario.idbarberia, archivado: false, fecha_pago: { [Op.between]: [desdeFecha, hastaFecha] } },
             include: [{
                 model: AgendaTurno,
                 as: 'agenda_turno',
@@ -696,7 +696,7 @@ router.get('/comisiones', soloRoles('admin'), async (req, res) => {
 router.get('/ventas', soloRoles('admin', 'barbero'), async (req, res) => {
     try {
         const { desde, hasta } = req.query;
-        const where = { idbarberia: req.usuario.idbarberia };
+        const where = { idbarberia: req.usuario.idbarberia, archivado: false };
         if (desde || hasta) {
             where.fecha_venta = {};
             if (desde) where.fecha_venta[Op.gte] = new Date(desde + 'T00:00:00');
@@ -756,7 +756,7 @@ router.get('/reportes', soloRoles('admin'), async (req, res) => {
 
         // Pagos del período
         const pagos = await PagoServicio.findAll({
-            where: { idbarberia, fecha_pago: { [Op.between]: [desdeDT, hastaDT] } },
+            where: { idbarberia, archivado: false, fecha_pago: { [Op.between]: [desdeDT, hastaDT] } },
             include: [{ model: AgendaTurno, as: 'agenda_turno', include: [
                 { model: Servicio, attributes: ['nombre_servicio'] },
                 { model: Usuario, as: 'barbero', include: [{ model: Persona, attributes: ['nombre_completo'] }] },
@@ -765,7 +765,7 @@ router.get('/reportes', soloRoles('admin'), async (req, res) => {
 
         // Ventas del período
         const ventas = await VentaProducto.findAll({
-            where: { idbarberia, fecha_venta: { [Op.between]: [desdeDT, hastaDT] } },
+            where: { idbarberia, archivado: false, fecha_venta: { [Op.between]: [desdeDT, hastaDT] } },
             include: [{ model: Producto, attributes: ['nombre_producto'] }],
         });
 
@@ -843,7 +843,7 @@ router.get('/reportes', soloRoles('admin'), async (req, res) => {
         // ── Gastos del período ──
         const Gastos = require('../models/Gastos');
         const gastosRows = await Gastos.findAll({
-            where: { idbarberia, fecha_gasto: { [Op.between]: [desde, hasta] } },
+            where: { idbarberia, archivado: false, fecha_gasto: { [Op.between]: [desde, hasta] } },
             raw: true,
         });
         const gastos_total = gastosRows.reduce((s, g) => s + parseFloat(g.monto), 0);
@@ -872,7 +872,7 @@ const Gastos = require('../models/Gastos');
 router.get('/gastos', soloRoles('admin'), async (req, res) => {
     try {
         const { desde, hasta, categoria } = req.query;
-        const where = { idbarberia: req.usuario.idbarberia };
+        const where = { idbarberia: req.usuario.idbarberia, archivado: false };
         if (desde || hasta) {
             where.fecha_gasto = {};
             if (desde) where.fecha_gasto[Op.gte] = desde;
@@ -1150,7 +1150,7 @@ router.get('/retiros', soloRoles('admin'), async (req, res) => {
         const Usuario    = require('../models/Usuario');
         const Persona    = require('../models/Persona');
         const retiros = await RetiroCaja.findAll({
-            where: { idbarberia: req.usuario.idbarberia },
+            where: { idbarberia: req.usuario.idbarberia, archivado: false },
             include: [{ model: Usuario, as: 'barbero', include: [{ model: Persona, attributes: ['nombre_completo'] }] }],
             order: [['fecha_retiro', 'DESC']],
         });
@@ -1183,6 +1183,53 @@ router.patch('/retiros/:id/cobrar', soloRoles('admin'), async (req, res) => {
         await retiro.update({ estado: 'devuelto', fecha_devolucion: new Date() });
         res.json(retiro);
     } catch (e) { console.error(e); res.status(500).json({ error: 'Error interno.' }); }
+});
+
+// ── Archivar período ──────────────────────────────────────────────────────────
+router.post('/archivar', soloRoles('admin'), async (req, res) => {
+    const { hasta_fecha } = req.body;
+    if (!hasta_fecha) return res.status(400).json({ error: 'hasta_fecha es obligatorio (YYYY-MM-DD).' });
+    const idbarberia = req.usuario.idbarberia;
+    const AgendaTurno  = require('../models/AgendaTurno');
+    const PagoServicio = require('../models/PagoServicio');
+    const Notificaciones = require('../models/Notificaciones');
+    const RetiroCaja = require('../models/RetiroCaja');
+    const hastaFin = new Date(hasta_fecha + 'T23:59:59');
+    try {
+        const [turnos, pagos, ventas, retiros, gastos] = await Promise.all([
+            AgendaTurno.update(
+                { estado: 'archivado' },
+                { where: { idbarberia, fecha: { [Op.lte]: hasta_fecha }, estado: { [Op.notIn]: ['pendiente', 'confirmado', 'archivado'] } } }
+            ),
+            PagoServicio.update(
+                { archivado: true },
+                { where: { idbarberia, archivado: false, fecha_pago: { [Op.lte]: hastaFin } } }
+            ),
+            VentaProducto.update(
+                { archivado: true },
+                { where: { idbarberia, archivado: false, fecha_venta: { [Op.lte]: hastaFin } } }
+            ),
+            RetiroCaja.update(
+                { archivado: true },
+                { where: { idbarberia, archivado: false, fecha_retiro: { [Op.lte]: hastaFin } } }
+            ),
+            Gastos.update(
+                { archivado: true },
+                { where: { idbarberia, archivado: false, fecha_gasto: { [Op.lte]: hasta_fecha } } }
+            ),
+        ]);
+        await Notificaciones.destroy({ where: { idbarberia, fecha_creacion: { [Op.lte]: hastaFin } } });
+        res.json({
+            mensaje: 'Período archivado correctamente.',
+            archivados: {
+                turnos: turnos[0],
+                pagos: pagos[0],
+                ventas: ventas[0],
+                retiros: retiros[0],
+                gastos: gastos[0],
+            },
+        });
+    } catch (err) { console.error(err); res.status(500).json({ error: 'Error interno.' }); }
 });
 
 module.exports = router;

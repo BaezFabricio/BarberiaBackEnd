@@ -40,7 +40,12 @@ const PagoServicio = sequelize.define('pago_servicio', {
     fecha_pago: {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW
-    }
+    },
+    archivado: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+        allowNull: false,
+    },
 });
 
 PagoServicio.belongsTo(EmpresaBarberia, { foreignKey: 'idbarberia', onDelete: 'RESTRICT' });

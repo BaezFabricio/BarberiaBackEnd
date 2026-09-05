@@ -40,7 +40,12 @@ const Gastos = sequelize.define('gastos', {
     fecha_registro: {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW
-    }
+    },
+    archivado: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+        allowNull: false,
+    },
 });
 
 Gastos.belongsTo(EmpresaBarberia, { foreignKey: 'idbarberia', onDelete: 'RESTRICT' });

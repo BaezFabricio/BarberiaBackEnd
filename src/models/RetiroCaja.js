@@ -13,6 +13,7 @@ const RetiroCaja = sequelize.define('RetiroCaja', {
     estado: { type: DataTypes.ENUM('pendiente', 'devuelto'), allowNull: false, defaultValue: 'pendiente' },
     fecha_retiro: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
     fecha_devolucion: { type: DataTypes.DATE, allowNull: true },
+    archivado: { type: DataTypes.BOOLEAN, defaultValue: false, allowNull: false },
 }, { tableName: 'retiro_caja' });
 
 RetiroCaja.belongsTo(EmpresaBarberia, { foreignKey: 'idbarberia' });

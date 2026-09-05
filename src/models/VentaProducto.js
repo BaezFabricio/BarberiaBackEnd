@@ -63,7 +63,12 @@ const VentaProducto = sequelize.define('venta_producto', {
     fecha_venta: {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW
-    }
+    },
+    archivado: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+        allowNull: false,
+    },
 });
 
 VentaProducto.belongsTo(EmpresaBarberia, { foreignKey: 'idbarberia', onDelete: 'RESTRICT' });
