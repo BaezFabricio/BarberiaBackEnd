@@ -356,6 +356,44 @@ router.put('/barberos/:id/horarios', soloRoles('admin'), async (req, res) => {
     }
 });
 
+// GET /mi-horario — barbero retrieves their own weekly schedule
+router.get('/mi-horario', async (req, res) => {
+    try {
+        const horarios = await HorariosAtencion.findAll({
+            where: { idusuario_barbero: req.usuario.idusuario },
+            order: [['dia_semana', 'ASC']],
+        });
+        res.json(horarios);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+});
+
+// PUT /mi-horario — barbero replaces their own weekly schedule
+// Body: [{ dia_semana, hora_apertura, hora_cierre }]
+router.put('/mi-horario', async (req, res) => {
+    const t = await sequelize.transaction();
+    try {
+        await HorariosAtencion.destroy({ where: { idusuario_barbero: req.usuario.idusuario }, transaction: t });
+        const nuevos = (req.body ?? []).map(h => ({
+            idusuario_barbero: req.usuario.idusuario,
+            dia_semana: h.dia_semana,
+            hora_apertura: h.hora_apertura,
+            hora_cierre: h.hora_cierre,
+        }));
+        if (nuevos.length > 0) {
+            await HorariosAtencion.bulkCreate(nuevos, { transaction: t });
+        }
+        await t.commit();
+        res.json({ mensaje: 'Horarios actualizados.' });
+    } catch (err) {
+        await t.rollback();
+        console.error(err);
+        res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+});
+
 // ── Servicios ────────────────────────────────────────────────────────────────
 router.get('/servicios', servicioCtrl.listar);
 router.post('/servicios', soloRoles('admin'), servicioCtrl.crear);

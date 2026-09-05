@@ -79,6 +79,24 @@ router.get('/barberia', async (req, res) => {
       }),
     ]);
 
+    // Fetch per-barbero schedules
+    const bIds = barberos.map(b => b.idusuario);
+    const todosHorarios = bIds.length > 0
+      ? await HorariosAtencion.findAll({
+          where: { idusuario_barbero: bIds },
+          order: [['idusuario_barbero', 'ASC'], ['dia_semana', 'ASC']],
+        })
+      : [];
+    const horariosPorBarbero = {};
+    for (const h of todosHorarios) {
+      if (!horariosPorBarbero[h.idusuario_barbero]) horariosPorBarbero[h.idusuario_barbero] = [];
+      horariosPorBarbero[h.idusuario_barbero].push({
+        dia_semana: h.dia_semana,
+        hora_apertura: h.hora_apertura.slice(0, 5),
+        hora_cierre: h.hora_cierre.slice(0, 5),
+      });
+    }
+
     return res.json({
       nombre_negocio: barberia.nombre_negocio,
       subdominio: barberia.subdominio,
@@ -115,6 +133,7 @@ router.get('/barberia', async (req, res) => {
         especialidades: b.especialidades ?? null,
         nombre_completo: b.persona?.nombre_completo ?? b.Persona?.nombre_completo ?? '',
         foto_url: b.persona?.foto_url ?? b.Persona?.foto_url ?? null,
+        horarios: horariosPorBarbero[b.idusuario] ?? [],
       })),
     });
   } catch (err) {
