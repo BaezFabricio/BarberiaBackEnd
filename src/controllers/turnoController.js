@@ -44,7 +44,8 @@ const listar = async (req, res) => {
 };
 
 const crear = async (req, res) => {
-    const { idcliente, nombre_cliente, correo_electronico, idusuario_barbero, idservicio, fecha, hora_inicio, hora_fin, tipo_alta } = req.body;
+    const { idcliente, nombre_cliente, correo_electronico, idservicio, fecha, hora_inicio, hora_fin, tipo_alta } = req.body;
+    const idusuario_barbero = req.body.idusuario_barbero ?? req.usuario.idusuario;
     let telefono_cliente = (req.body.telefono_cliente ?? '').replace(/\D/g, '');
     if (telefono_cliente.startsWith('549')) telefono_cliente = telefono_cliente.slice(3);
     else if (telefono_cliente.startsWith('54')) telefono_cliente = telefono_cliente.slice(2);
