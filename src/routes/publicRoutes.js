@@ -598,6 +598,39 @@ router.get('/valoraciones/:idusuario', async (req, res) => {
     } catch (err) { console.error(err); res.status(500).json({ error: 'Error interno.' }); }
 });
 
+// GET reseñas de la barbería
+router.get('/resenas-barberia', async (req, res) => {
+    try {
+        const barberia = await resolverBarberia(req.query.subdominio);
+        if (!barberia) return res.status(404).json({ error: 'Barbería no encontrada.' });
+        const [rows] = await sequelize.query(
+            `SELECT estrellas, comentario, nombre_cliente, created_at
+             FROM resenas_barberia
+             WHERE idbarberia = ? ORDER BY created_at DESC LIMIT 50`,
+            { replacements: [barberia.idbarberia] }
+        );
+        const total = rows.length;
+        const promedio = total ? (rows.reduce((s, r) => s + r.estrellas, 0) / total).toFixed(1) : null;
+        res.json({ promedio, total, reseñas: rows });
+    } catch (err) { console.error(err); res.status(500).json({ error: 'Error interno.' }); }
+});
+
+// POST nueva reseña de la barbería
+router.post('/resena-barberia', async (req, res) => {
+    try {
+        const { estrellas, comentario, nombre_cliente, subdominio } = req.body;
+        if (!estrellas || estrellas < 1 || estrellas > 5)
+            return res.status(400).json({ error: 'Calificación inválida (1-5).' });
+        const barberia = await resolverBarberia(subdominio);
+        if (!barberia) return res.status(404).json({ error: 'Barbería no encontrada.' });
+        await sequelize.query(
+            `INSERT INTO resenas_barberia (idbarberia, estrellas, comentario, nombre_cliente) VALUES (?, ?, ?, ?)`,
+            { replacements: [barberia.idbarberia, estrellas, comentario || null, nombre_cliente || 'Anónimo'] }
+        );
+        res.json({ ok: true });
+    } catch (err) { console.error(err); res.status(500).json({ error: 'Error interno.' }); }
+});
+
 async function recalcularRating(idusuario_barbero) {
     const vals = await ValoracionBarbero.findAll({
         where: { idusuario_barbero, estrellas: { [Op.not]: null } },

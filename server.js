@@ -24,6 +24,7 @@ app.use(cors({
     origin: (origin, callback) => {
         if (!origin) return callback(null, true);
         if (originesPermitidos.includes(origin)) return callback(null, true);
+        if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return callback(null, true);
         if (VERCEL_PROJECT_PATTERN && VERCEL_PROJECT_PATTERN.test(origin)) return callback(null, true);
         callback(new Error('CORS: origen no permitido'));
     },
@@ -229,6 +230,21 @@ async function levantarServidor() {
             await sequelize.query("ALTER TABLE empresa_barberia ADD COLUMN greenapi_api_token VARCHAR(100) NULL");
             console.log('🔄 Migración: columna greenapi_api_token agregada');
         } catch (e) { /* ya existe, ignorar */ }
+
+        // Tabla de reseñas de la barbería
+        try {
+            await sequelize.query(`
+                CREATE TABLE IF NOT EXISTS resenas_barberia (
+                    idresena INT AUTO_INCREMENT PRIMARY KEY,
+                    idbarberia INT NOT NULL,
+                    estrellas INT NOT NULL,
+                    comentario TEXT,
+                    nombre_cliente VARCHAR(100),
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            `);
+            console.log('⭐ Tabla resenas_barberia verificada');
+        } catch (e) { console.error('Resenas barberia migration:', e.message); }
 
         // Tabla de valoraciones de barberos
         try {

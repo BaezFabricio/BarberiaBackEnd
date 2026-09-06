@@ -3,7 +3,7 @@ const sequelize = require('../../config/database');
 
 const ValoracionBarbero = sequelize.define('valoracion_barbero', {
     idvaloracion: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
-    idbarberia:   { type: DataTypes.INTEGER, allowNull: false },
+    idbarberia:   { type: DataTypes.INTEGER, allowNull: true },
     idusuario_barbero: { type: DataTypes.INTEGER, allowNull: false },
     idagenda:     { type: DataTypes.INTEGER, allowNull: true, unique: true },
     estrellas:    { type: DataTypes.INTEGER, allowNull: false },
