@@ -13,6 +13,7 @@ const Usuario = require('../models/Usuario');
 const Persona = require('../models/Persona');
 const HorariosAtencion = require('../models/HorariosAtencion');
 const EmpresaBarberia = require('../models/EmpresaBarberia');
+const publicRoutes = require('./publicRoutes');
 const Servicio = require('../models/Servicio');
 require('../models/PagoServicio'); // registra asociación AgendaTurno <-> PagoServicio
 const VentaProducto = require('../models/VentaProducto');
@@ -25,6 +26,18 @@ const router = Router();
 // Todas las rutas aquí requieren JWT válido + tenant identificado
 router.use(authMiddleware);
 router.use(tenantMiddleware);
+
+// Invalida caché pública después de cualquier escritura exitosa del admin
+router.use((req, res, next) => {
+    if (req.method !== 'GET') {
+        res.on('finish', () => {
+            if (res.statusCode < 400 && req.usuario?.idbarberia) {
+                publicRoutes.cacheInvalidar(req.usuario.idbarberia);
+            }
+        });
+    }
+    next();
+});
 
 // ── Perfil del usuario autenticado ───────────────────────────────────────────
 router.get('/mi-perfil', async (req, res) => {
@@ -1238,51 +1251,5 @@ router.patch('/retiros/:id/cobrar', soloRoles('admin'), async (req, res) => {
     } catch (e) { console.error(e); res.status(500).json({ error: 'Error interno.' }); }
 });
 
-// ── Archivar período ──────────────────────────────────────────────────────────
-router.post('/archivar', soloRoles('admin'), async (req, res) => {
-    const { hasta_fecha } = req.body;
-    if (!hasta_fecha) return res.status(400).json({ error: 'hasta_fecha es obligatorio (YYYY-MM-DD).' });
-    const idbarberia = req.usuario.idbarberia;
-    const AgendaTurno  = require('../models/AgendaTurno');
-    const PagoServicio = require('../models/PagoServicio');
-    const Notificaciones = require('../models/Notificaciones');
-    const RetiroCaja = require('../models/RetiroCaja');
-    const hastaFin = new Date(hasta_fecha + 'T23:59:59');
-    try {
-        const [turnos, pagos, ventas, retiros, gastos] = await Promise.all([
-            AgendaTurno.update(
-                { estado: 'archivado' },
-                { where: { idbarberia, fecha: { [Op.lte]: hasta_fecha }, estado: { [Op.notIn]: ['pendiente', 'confirmado', 'archivado'] } } }
-            ),
-            PagoServicio.update(
-                { archivado: true },
-                { where: { idbarberia, archivado: false, fecha_pago: { [Op.lte]: hastaFin } } }
-            ),
-            VentaProducto.update(
-                { archivado: true },
-                { where: { idbarberia, archivado: false, fecha_venta: { [Op.lte]: hastaFin } } }
-            ),
-            RetiroCaja.update(
-                { archivado: true },
-                { where: { idbarberia, archivado: false, fecha_retiro: { [Op.lte]: hastaFin } } }
-            ),
-            Gastos.update(
-                { archivado: true },
-                { where: { idbarberia, archivado: false, fecha_gasto: { [Op.lte]: hasta_fecha } } }
-            ),
-        ]);
-        await Notificaciones.destroy({ where: { idbarberia, fecha_creacion: { [Op.lte]: hastaFin } } });
-        res.json({
-            mensaje: 'Período archivado correctamente.',
-            archivados: {
-                turnos: turnos[0],
-                pagos: pagos[0],
-                ventas: ventas[0],
-                retiros: retiros[0],
-                gastos: gastos[0],
-            },
-        });
-    } catch (err) { console.error(err); res.status(500).json({ error: 'Error interno.' }); }
-});
 
 module.exports = router;

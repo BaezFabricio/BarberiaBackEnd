@@ -17,19 +17,48 @@ const { notificarClienteNuevoTurno, notificarBarberoNuevoTurno } = require('../s
 
 const router = Router();
 
+// ── Caché en memoria ──────────────────────────────────────────────────────────
+const _cache = new Map();
+function cacheGet(key) {
+    const entry = _cache.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expires) { _cache.delete(key); return null; }
+    return entry.value;
+}
+function cacheSet(key, value, ttlMs) {
+    _cache.set(key, { value, expires: Date.now() + ttlMs });
+}
+function cacheInvalidar(idbarberia) {
+    for (const key of _cache.keys()) {
+        if (key.includes(String(idbarberia))) _cache.delete(key);
+    }
+}
+
 // Resuelve la barbería activa por subdominio o por SINGLE_TENANT_ID si no se pasa subdominio
 async function resolverBarberia(subdominio, { transaction } = {}) {
+    // Solo cachear cuando no hay transacción activa
+    if (!transaction) {
+        const cacheKey = subdominio
+            ? `barberia:sub:${subdominio}`
+            : `barberia:tenant:${process.env.SINGLE_TENANT_ID}`;
+        const cached = cacheGet(cacheKey);
+        if (cached) return cached;
+        const barberia = subdominio
+            ? await EmpresaBarberia.findOne({ where: { subdominio, estado_cuenta: 'activo' } })
+            : process.env.SINGLE_TENANT_ID
+                ? await EmpresaBarberia.findOne({ where: { idbarberia: Number(process.env.SINGLE_TENANT_ID), estado_cuenta: 'activo' } })
+                : null;
+        if (barberia) cacheSet(cacheKey, barberia, 5 * 60 * 1000);
+        return barberia;
+    }
     if (!subdominio && process.env.SINGLE_TENANT_ID) {
         return EmpresaBarberia.findOne({
             where: { idbarberia: Number(process.env.SINGLE_TENANT_ID), estado_cuenta: 'activo' },
-            ...(transaction ? { transaction } : {}),
+            transaction,
         });
     }
     if (!subdominio) return null;
-    return EmpresaBarberia.findOne({
-        where: { subdominio, estado_cuenta: 'activo' },
-        ...(transaction ? { transaction } : {}),
-    });
+    return EmpresaBarberia.findOne({ where: { subdominio, estado_cuenta: 'activo' }, transaction });
 }
 
 router.post('/registro', registro);
@@ -40,12 +69,17 @@ router.get('/galeria', async (req, res) => {
     try {
         const barberia = await resolverBarberia(subdominio);
         if (!barberia) return res.json([]);
+        const cacheKey = `resp:galeria:${barberia.idbarberia}`;
+        const cached = cacheGet(cacheKey);
+        if (cached) return res.json(cached);
         const ImagenesGaleria = require('../models/ImagenesGaleria');
         const imgs = await ImagenesGaleria.findAll({
             where: { idbarberia: barberia.idbarberia, tipo_seccion: 'landing_galeria' },
             order: [['idimagen', 'ASC']],
         });
-        res.json(imgs.map(i => ({ idimagen: i.idimagen, url: i.url_imagen })));
+        const result = imgs.map(i => ({ idimagen: i.idimagen, url: i.url_imagen }));
+        cacheSet(cacheKey, result, 10 * 60 * 1000);
+        res.json(result);
     } catch { res.json([]); }
 });
 
@@ -54,9 +88,14 @@ router.get('/carrusel', async (req, res) => {
     try {
         const barberia = await resolverBarberia(subdominio);
         if (!barberia) return res.json([]);
+        const cacheKey = `resp:carrusel:${barberia.idbarberia}`;
+        const cached = cacheGet(cacheKey);
+        if (cached) return res.json(cached);
         const ImagenCarrusel = require('../models/ImagenCarrusel');
         const imgs = await ImagenCarrusel.findAll({ where: { idbarberia: barberia.idbarberia }, order: [['orden', 'ASC'], ['idimagen', 'ASC']] });
-        res.json(imgs);
+        const result = imgs.map(i => i.toJSON());
+        cacheSet(cacheKey, result, 10 * 60 * 1000);
+        res.json(result);
     } catch { res.json([]); }
 });
 
@@ -66,6 +105,10 @@ router.get('/barberia', async (req, res) => {
     const { subdominio } = req.query;
     const barberia = await resolverBarberia(subdominio);
     if (!barberia) return res.status(404).json({ error: 'Barbería no encontrada' });
+
+    const cacheKey = `resp:barberia:${barberia.idbarberia}`;
+    const cached = cacheGet(cacheKey);
+    if (cached) return res.json(cached);
 
     const [servicios, barberos] = await Promise.all([
       Servicio.findAll({
@@ -97,7 +140,7 @@ router.get('/barberia', async (req, res) => {
       });
     }
 
-    return res.json({
+    const result = {
       nombre_negocio: barberia.nombre_negocio,
       subdominio: barberia.subdominio,
       logo_url:            barberia.logo_url ?? null,
@@ -135,7 +178,9 @@ router.get('/barberia', async (req, res) => {
         foto_url: b.persona?.foto_url ?? b.Persona?.foto_url ?? null,
         horarios: horariosPorBarbero[b.idusuario] ?? [],
       })),
-    });
+    };
+    cacheSet(cacheKey, result, 5 * 60 * 1000);
+    return res.json(result);
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Error interno' });
@@ -641,4 +686,5 @@ async function recalcularRating(idusuario_barbero) {
     await Usuario.update({ rating_promedio: parseFloat(avg.toFixed(2)) }, { where: { idusuario: idusuario_barbero } });
 }
 
+router.cacheInvalidar = cacheInvalidar;
 module.exports = router;
