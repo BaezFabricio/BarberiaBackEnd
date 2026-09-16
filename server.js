@@ -74,8 +74,22 @@ function iniciarCron() {
             const fechaHoy = ahora.toISOString().split('T')[0];
             const horaActual = ahora.toTimeString().slice(0, 8); // HH:MM:SS
 
-            // Las transiciones automáticas pendiente/confirmado → ausente → archivado
-            // fueron eliminadas. El barbero decide manualmente el estado de cada turno.
+            // 1. pendiente/confirmado → ausente: 1 hora de gracia tras hora_inicio
+            const unaHoraAtras = new Date(ahora.getTime() - 60 * 60 * 1000);
+            const horaLimite = unaHoraAtras.toTimeString().slice(0, 8);
+            const fechaLimite = unaHoraAtras.toISOString().split('T')[0];
+            await AgendaTurno.update(
+                { estado: 'ausente' },
+                {
+                    where: {
+                        estado: { [Op.in]: ['pendiente', 'confirmado'] },
+                        [Op.or]: [
+                            { fecha: { [Op.lt]: fechaLimite } },
+                            { fecha: fechaLimite, hora_inicio: { [Op.lt]: horaLimite } },
+                        ],
+                    },
+                }
+            );
 
             // 3. Pendiente → Cancelado: no confirmó en tiempo configurado (libera el slot)
             const EmpresaBarberia = require('./src/models/EmpresaBarberia');
