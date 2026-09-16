@@ -408,6 +408,26 @@ router.put('/mi-horario', async (req, res) => {
 });
 
 // ── Servicios ────────────────────────────────────────────────────────────────
+router.get('/servicios/stats', soloRoles('admin', 'barbero'), async (req, res) => {
+    try {
+        const AgendaTurno = require('../models/AgendaTurno');
+        const { Op, fn, col, literal } = require('sequelize');
+        const rows = await AgendaTurno.findAll({
+            where: {
+                idbarberia: req.usuario.idbarberia,
+                idservicio: { [Op.ne]: null },
+                estado: { [Op.notIn]: ['cancelado', 'archivado'] },
+            },
+            attributes: ['idservicio', [fn('COUNT', col('idservicio')), 'total']],
+            group: ['idservicio'],
+            order: [[literal('total'), 'DESC']],
+            limit: 1,
+            raw: true,
+        });
+        res.json({ idservicio_destacado: rows[0]?.idservicio ?? null, total: rows[0]?.total ?? 0 });
+    } catch (err) { console.error(err); res.status(500).json({ error: 'Error interno.' }); }
+});
+
 router.get('/servicios', servicioCtrl.listar);
 router.post('/servicios', soloRoles('admin'), servicioCtrl.crear);
 router.put('/servicios/:id', soloRoles('admin'), servicioCtrl.actualizar);
