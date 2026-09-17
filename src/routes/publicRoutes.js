@@ -543,8 +543,10 @@ h1{font-size:20px;color:#111827;margin-bottom:8px;}p{font-size:14px;color:#6b728
 // rangos: [{ apertura: 'HH:MM', cierre: 'HH:MM' }]
 function generarSlots(rangos, duracionMin, turnosOcupados, fecha) {
   const ahora = new Date();
-  const esHoy = fecha === ahora.toISOString().split('T')[0];
-  const minutoActual = ahora.getHours() * 60 + ahora.getMinutes() + 30;
+  // Argentina es UTC-3, fijo (sin DST). Ajustar antes de comparar fecha y hora.
+  const ahoraAR = new Date(ahora.getTime() - 3 * 60 * 60 * 1000);
+  const esHoy = fecha === ahoraAR.toISOString().split('T')[0];
+  const minutoActual = ahoraAR.getUTCHours() * 60 + ahoraAR.getUTCMinutes() + 30;
 
   const ocupados = turnosOcupados.map(t => {
     const [th, tm] = t.hora_inicio.slice(0, 5).split(':').map(Number);
