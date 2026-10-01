@@ -14,6 +14,16 @@ function crearTransporte(gmail, password) {
     });
 }
 
+// Mismos proveedores que intenta enviarEmail(), en el mismo orden.
+// Si se agrega uno nuevo, sumarlo acá también o los emails se descartan en silencio.
+function hayEmailConfigurado(barberia) {
+    return Boolean(
+        process.env.BREVO_API_KEY ||
+        process.env.RESEND_API_KEY ||
+        (barberia?.gmail_remitente && barberia?.gmail_password)
+    );
+}
+
 async function enviarEmail({ from, to, subject, html, barberia }) {
     const senderName  = barberia?.nombre_negocio ?? 'BarberSystem';
     const senderEmail = barberia?.gmail_remitente ?? null;
@@ -61,7 +71,7 @@ async function enviarEmail({ from, to, subject, html, barberia }) {
 
 async function enviarConfirmacionTurno({ barberia, turno, cliente, servicio, barbero, tokenConfirmar, tokenCancelar }) {
     if (!cliente?.correo_electronico) return;
-    if (!process.env.RESEND_API_KEY && (!barberia.gmail_remitente || !barberia.gmail_password)) return;
+    if (!hayEmailConfigurado(barberia)) return;
 
     const fechaFormateada = new Date(turno.fecha + 'T12:00:00').toLocaleDateString('es-AR', {
         weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
@@ -156,7 +166,7 @@ async function enviarConfirmacionTurno({ barberia, turno, cliente, servicio, bar
 }
 
 async function enviarCancelacionTurno({ barberia, turno, cliente, servicio, motivo }) {
-    if (!process.env.RESEND_API_KEY && (!barberia.gmail_remitente || !barberia.gmail_password)) return;
+    if (!hayEmailConfigurado(barberia)) return;
     if (!cliente.correo_electronico) return;
 
     const fechaFormateada = new Date(turno.fecha + 'T12:00:00').toLocaleDateString('es-AR', {
@@ -204,7 +214,7 @@ async function enviarCancelacionTurno({ barberia, turno, cliente, servicio, moti
 }
 
 async function enviarEmailPromo({ email, nombre, mensaje, barberia }) {
-    if (!process.env.RESEND_API_KEY && (!barberia.gmail_remitente || !barberia.gmail_password)) return;
+    if (!hayEmailConfigurado(barberia)) return;
     const html = `<!DOCTYPE html><html><body style="font-family:sans-serif;background:#f5f5f5;padding:20px">
   <table width="600" align="center" style="background:#fff;border-radius:8px;overflow:hidden">
     <tr><td style="background:#1a1a1a;padding:24px;text-align:center">
@@ -226,7 +236,7 @@ async function enviarEmailPromo({ email, nombre, mensaje, barberia }) {
 }
 
 async function enviarEmailBarberoNuevoTurno({ barberia, turno, cliente, servicio, barbero, tokenCancelar }) {
-    if (!process.env.RESEND_API_KEY && (!barberia.gmail_remitente || !barberia.gmail_password)) return;
+    if (!hayEmailConfigurado(barberia)) return;
     if (!barbero.correo_electronico) return;
 
     const fechaFormateada = new Date(turno.fecha + 'T12:00:00').toLocaleDateString('es-AR', {
@@ -310,7 +320,7 @@ async function enviarEmailRecuperacion({ correo, nombre, token, BASE_URL, barber
 
 async function enviarEmailRecordatorio({ barberia, turno, cliente, servicio, barbero }) {
     if (!cliente?.correo_electronico) return;
-    if (!process.env.RESEND_API_KEY && (!barberia.gmail_remitente || !barberia.gmail_password)) return;
+    if (!hayEmailConfigurado(barberia)) return;
 
     const fechaFormateada = new Date(turno.fecha + 'T12:00:00').toLocaleDateString('es-AR', {
         weekday: 'long', day: 'numeric', month: 'long'
@@ -363,7 +373,7 @@ async function enviarEmailRecordatorio({ barberia, turno, cliente, servicio, bar
 
 async function enviarEmailCalificacion({ barberia, turno, cliente, barbero, linkCalificar }) {
     if (!cliente?.correo_electronico) return;
-    if (!process.env.BREVO_API_KEY && !process.env.RESEND_API_KEY && (!barberia?.gmail_remitente || !barberia?.gmail_password)) return;
+    if (!hayEmailConfigurado(barberia)) return;
 
     const nombreBarberia = barberia?.nombre_negocio ?? 'Tu Barbería';
     const nombreCliente  = cliente.nombre_completo?.split(' ')[0] ?? 'Cliente';
