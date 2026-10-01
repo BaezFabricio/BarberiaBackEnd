@@ -150,12 +150,13 @@ router.get('/mi-barberia', (req, res) => {
         notif_nueva_reserva: t.notif_nueva_reserva ?? true,
         notif_recordatorio:  t.notif_recordatorio ?? true,
         notif_barbero:       t.notif_barbero ?? true,
-        // Notificaciones
+        // Notificaciones — esta ruta la lee cualquier usuario logueado (también barberos),
+        // así que los secretos no se devuelven: solo si están cargados o no.
         gmail_remitente:     t.gmail_remitente ?? '',
         whatsapp_barbero:    t.whatsapp_barbero ?? '',
-        callmebot_apikey:      t.callmebot_apikey ?? '',
-        greenapi_instance_id:  t.greenapi_instance_id ?? '',
-        greenapi_api_token:    t.greenapi_api_token ?? '',
+        greenapi_instance_id: t.greenapi_instance_id ?? '',
+        gmail_configurado:    Boolean(t.gmail_remitente && t.gmail_password),
+        greenapi_configurado: Boolean(t.greenapi_instance_id && t.greenapi_api_token),
     });
 });
 
@@ -170,8 +171,15 @@ router.put('/mi-barberia', soloRoles('admin'), async (req, res) => {
             'gmail_remitente','gmail_password','whatsapp_barbero','callmebot_apikey','greenapi_instance_id','greenapi_api_token',
             'notif_nueva_reserva','notif_recordatorio','notif_barbero',
         ];
+        // El GET no devuelve los secretos, así que el formulario los manda vacíos:
+        // un valor en blanco no debe borrar el que ya está guardado.
+        const SECRETOS = ['gmail_password', 'callmebot_apikey', 'greenapi_api_token'];
         const updates = {};
-        fields.forEach(f => { if (b[f] !== undefined) updates[f] = b[f]; });
+        fields.forEach(f => {
+            if (b[f] === undefined) return;
+            if (SECRETOS.includes(f) && b[f] === '') return; // '' = sin cambios; null sí borra
+            updates[f] = b[f];
+        });
         await EmpresaBarberia.update(updates, { where: { idbarberia: req.usuario.idbarberia } });
         res.json({ mensaje: 'Configuración actualizada.' });
     } catch (err) {
