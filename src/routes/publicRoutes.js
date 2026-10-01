@@ -61,6 +61,16 @@ async function resolverBarberia(subdominio, { transaction } = {}) {
     return EmpresaBarberia.findOne({ where: { subdominio, estado_cuenta: 'activo' }, transaction });
 }
 
+// Igual que resolverBarberia pero sin filtrar por estado_cuenta: sirve para
+// distinguir "no existe" de "existe pero está suspendida" y dar un mensaje útil.
+async function buscarIgnorandoEstado(subdominio) {
+    if (subdominio) return EmpresaBarberia.findOne({ where: { subdominio } });
+    if (process.env.SINGLE_TENANT_ID) {
+        return EmpresaBarberia.findOne({ where: { idbarberia: Number(process.env.SINGLE_TENANT_ID) } });
+    }
+    return null;
+}
+
 router.post('/registro', registro);
 router.post('/login', login);
 
@@ -104,7 +114,19 @@ router.get('/barberia', async (req, res) => {
   try {
     const { subdominio } = req.query;
     const barberia = await resolverBarberia(subdominio);
-    if (!barberia) return res.status(404).json({ error: 'Barbería no encontrada' });
+    if (!barberia) {
+      const existente = await buscarIgnorandoEstado(subdominio);
+      if (existente) {
+        return res.status(503).json({
+          error: 'El sitio está temporalmente fuera de servicio.',
+          suspendida: true,
+          nombre_negocio: existente.nombre_negocio,
+          telefono: existente.telefono ?? null,
+          whatsapp_negocio: existente.whatsapp_negocio ?? null,
+        });
+      }
+      return res.status(404).json({ error: 'Barbería no encontrada' });
+    }
 
     const cacheKey = `resp:barberia:${barberia.idbarberia}`;
     const cached = cacheGet(cacheKey);
