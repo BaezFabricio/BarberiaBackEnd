@@ -45,7 +45,24 @@ const tenantMiddleware = async (req, res, next) => {
             }
         }
 
-        return res.status(403).json({ error: 'Barbería no identificada o cuenta suspendida.' });
+        // Hasta acá no se encontró ninguna barbería *activa*. Se vuelve a buscar
+        // ignorando el estado para poder distinguir "no identificada" de
+        // "suspendida" y que el panel muestre una pantalla propia.
+        const idSingle = process.env.SINGLE_TENANT_ID ? Number(process.env.SINGLE_TENANT_ID) : null;
+        const existente =
+            (idSingle && await EmpresaBarberia.findOne({ where: { idbarberia: idSingle } })) ||
+            (subdominio && await EmpresaBarberia.findOne({ where: { subdominio } })) ||
+            (idbarberia && await EmpresaBarberia.findOne({ where: { idbarberia } })) ||
+            null;
+
+        if (existente) {
+            return res.status(403).json({
+                error: 'El acceso al panel está suspendido.',
+                suspendida: true,
+            });
+        }
+
+        return res.status(403).json({ error: 'Barbería no identificada.' });
     } catch (error) {
         if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
             return res.status(401).json({ error: 'Token inválido o expirado.' });
