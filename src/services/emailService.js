@@ -1,6 +1,13 @@
 const nodemailer = require('nodemailer');
 const { Resend } = require('resend');
 
+// Todo texto que viene de una persona (nombre del cliente, motivo, mensaje de una promo...) se escapa
+// antes de entrar al HTML: si no, quien reserva online podría meter HTML o enlaces en el correo que
+// le llega al barbero o al dueño. En asunto y remitente se quitan los saltos de línea.
+const esc = valor => String(valor ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const linea = valor => String(valor ?? '').replace(/[\r\n]+/g, ' ').trim();
+
+
 function crearTransporte(gmail, password) {
     return nodemailer.createTransport({
         host: 'smtp.gmail.com',
@@ -54,7 +61,7 @@ async function enviarEmail({ from, to, subject, html, barberia }) {
     if (barberia?.gmail_remitente && barberia?.gmail_password) {
         const transporte = crearTransporte(barberia.gmail_remitente, barberia.gmail_password);
         await transporte.sendMail({
-            from: `${senderName} <${senderEmail}>`,
+            from: `${linea(senderName)} <${linea(senderEmail)}>`,
             to, subject, html,
         });
         return;
@@ -93,7 +100,7 @@ async function enviarConfirmacionTurno({ barberia, turno, cliente, servicio, bar
         <!-- Header -->
         <tr><td style="background:#1a1a1f;padding:28px 32px;text-align:center;">
           <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">
-            ${barberia.nombre_negocio}
+            ${esc(barberia.nombre_negocio)}
           </h1>
           <p style="margin:6px 0 0;color:#d4a843;font-size:13px;">Confirmación de turno</p>
         </td></tr>
@@ -101,15 +108,15 @@ async function enviarConfirmacionTurno({ barberia, turno, cliente, servicio, bar
         <!-- Body -->
         <tr><td style="padding:32px;">
           <p style="margin:0 0 20px;font-size:15px;color:#374151;">
-            Hola <strong>${cliente.nombre_completo}</strong>, tu turno fue registrado exitosamente.
+            Hola <strong>${esc(cliente.nombre_completo)}</strong>, tu turno fue registrado exitosamente.
           </p>
 
           <!-- Detalles -->
           <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border-radius:8px;padding:20px;margin-bottom:28px;">
             <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Servicio</td>
-                <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${servicio.nombre_servicio}</td></tr>
+                <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${esc(servicio.nombre_servicio)}</td></tr>
             <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Barbero</td>
-                <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${barbero.nombre_completo}</td></tr>
+                <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${esc(barbero.nombre_completo)}</td></tr>
             <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Fecha</td>
                 <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${fechaFormateada}</td></tr>
             <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Hora</td>
@@ -148,7 +155,7 @@ async function enviarConfirmacionTurno({ barberia, turno, cliente, servicio, bar
 
         <!-- Footer -->
         <tr><td style="background:#f9fafb;padding:16px 32px;text-align:center;border-top:1px solid #e5e7eb;">
-          <p style="margin:0;font-size:12px;color:#9ca3af;">${barberia.nombre_negocio} · Sistema de turnos online</p>
+          <p style="margin:0;font-size:12px;color:#9ca3af;">${esc(barberia.nombre_negocio)} · Sistema de turnos online</p>
         </td></tr>
 
       </table>
@@ -158,9 +165,9 @@ async function enviarConfirmacionTurno({ barberia, turno, cliente, servicio, bar
 </html>`;
 
     await enviarEmail({
-        from: `${barberia.nombre_negocio} <onboarding@resend.dev>`,
+        from: `${linea(barberia.nombre_negocio)} <onboarding@resend.dev>`,
         to: cliente.correo_electronico,
-        subject: `Tu turno en ${barberia.nombre_negocio} — ${fechaFormateada}`,
+        subject: `Tu turno en ${linea(barberia.nombre_negocio)} — ${fechaFormateada}`,
         html, barberia,
     });
 }
@@ -182,22 +189,22 @@ async function enviarCancelacionTurno({ barberia, turno, cliente, servicio, moti
     <tr><td align="center">
       <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
         <tr><td style="background:#1a1a1f;padding:28px 32px;text-align:center;">
-          <h1 style="margin:0;color:#ffffff;font-size:22px;">${barberia.nombre_negocio}</h1>
+          <h1 style="margin:0;color:#ffffff;font-size:22px;">${esc(barberia.nombre_negocio)}</h1>
           <p style="margin:6px 0 0;color:#dc2626;font-size:13px;">Turno cancelado</p>
         </td></tr>
         <tr><td style="padding:32px;">
           <p style="font-size:15px;color:#374151;">
-            Hola <strong>${cliente.nombre_completo}</strong>, lamentablemente tu turno del <strong>${fechaFormateada}</strong> a las <strong>${turno.hora_inicio.slice(0,5)} hs</strong> para <strong>${servicio.nombre_servicio}</strong> fue cancelado.
+            Hola <strong>${esc(cliente.nombre_completo)}</strong>, lamentablemente tu turno del <strong>${fechaFormateada}</strong> a las <strong>${turno.hora_inicio.slice(0,5)} hs</strong> para <strong>${esc(servicio.nombre_servicio)}</strong> fue cancelado.
           </p>
           ${motivo ? `
           <div style="background:#fef2f2;border-left:4px solid #dc2626;border-radius:4px;padding:12px 16px;margin:20px 0;">
             <p style="margin:0;font-size:13px;color:#7f1d1d;font-weight:600;">Motivo:</p>
-            <p style="margin:4px 0 0;font-size:14px;color:#991b1b;">${motivo}</p>
+            <p style="margin:4px 0 0;font-size:14px;color:#991b1b;">${esc(motivo)}</p>
           </div>` : ''}
           <p style="font-size:14px;color:#6b7280;">Podés reservar otro turno desde nuestra página cuando quieras. Disculpá las molestias.</p>
         </td></tr>
         <tr><td style="background:#f9fafb;padding:16px 32px;text-align:center;border-top:1px solid #e5e7eb;">
-          <p style="margin:0;font-size:12px;color:#9ca3af;">${barberia.nombre_negocio} · Sistema de turnos online</p>
+          <p style="margin:0;font-size:12px;color:#9ca3af;">${esc(barberia.nombre_negocio)} · Sistema de turnos online</p>
         </td></tr>
       </table>
     </td></tr>
@@ -206,9 +213,9 @@ async function enviarCancelacionTurno({ barberia, turno, cliente, servicio, moti
 </html>`;
 
     await enviarEmail({
-        from: `${barberia.nombre_negocio} <onboarding@resend.dev>`,
+        from: `${linea(barberia.nombre_negocio)} <onboarding@resend.dev>`,
         to: cliente.correo_electronico,
-        subject: `Turno cancelado — ${barberia.nombre_negocio}`,
+        subject: `Turno cancelado — ${linea(barberia.nombre_negocio)}`,
         html, barberia,
     });
 }
@@ -218,19 +225,19 @@ async function enviarEmailPromo({ email, nombre, mensaje, barberia }) {
     const html = `<!DOCTYPE html><html><body style="font-family:sans-serif;background:#f5f5f5;padding:20px">
   <table width="600" align="center" style="background:#fff;border-radius:8px;overflow:hidden">
     <tr><td style="background:#1a1a1a;padding:24px;text-align:center">
-      <h2 style="color:#d4a843;margin:0">${barberia.nombre_negocio}</h2>
+      <h2 style="color:#d4a843;margin:0">${esc(barberia.nombre_negocio)}</h2>
     </td></tr>
     <tr><td style="padding:32px">
-      <p style="font-size:16px;color:#333">Hola ${nombre.split(' ')[0]},</p>
-      <p style="font-size:15px;color:#444;white-space:pre-line">${mensaje}</p>
-      <p style="color:#888;font-size:13px;margin-top:32px">— El equipo de ${barberia.nombre_negocio}</p>
+      <p style="font-size:16px;color:#333">Hola ${esc(nombre.split(' ')[0])},</p>
+      <p style="font-size:15px;color:#444;white-space:pre-line">${esc(mensaje)}</p>
+      <p style="color:#888;font-size:13px;margin-top:32px">— El equipo de ${esc(barberia.nombre_negocio)}</p>
     </td></tr>
   </table>
 </body></html>`;
     await enviarEmail({
-        from: `${barberia.nombre_negocio} <onboarding@resend.dev>`,
+        from: `${linea(barberia.nombre_negocio)} <onboarding@resend.dev>`,
         to: email,
-        subject: `Una propuesta para vos — ${barberia.nombre_negocio}`,
+        subject: `Una propuesta para vos — ${linea(barberia.nombre_negocio)}`,
         html, barberia,
     });
 }
@@ -255,20 +262,20 @@ async function enviarEmailBarberoNuevoTurno({ barberia, turno, cliente, servicio
     <tr><td align="center">
       <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
         <tr><td style="background:#1a1a1f;padding:28px 32px;text-align:center;">
-          <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">${barberia.nombre_negocio}</h1>
+          <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">${esc(barberia.nombre_negocio)}</h1>
           <p style="margin:6px 0 0;color:#d4a843;font-size:13px;">Nuevo turno asignado</p>
         </td></tr>
         <tr><td style="padding:32px;">
           <p style="margin:0 0 20px;font-size:15px;color:#374151;">
-            Hola <strong>${barbero.nombre_completo}</strong>, tenés un nuevo turno reservado.
+            Hola <strong>${esc(barbero.nombre_completo)}</strong>, tenés un nuevo turno reservado.
           </p>
           <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border-radius:8px;padding:20px;margin-bottom:28px;">
             <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Cliente</td>
-                <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${cliente.nombre_completo}</td></tr>
+                <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${esc(cliente.nombre_completo)}</td></tr>
             <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Teléfono</td>
-                <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${cliente.telefono}</td></tr>
+                <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${esc(cliente.telefono)}</td></tr>
             <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Servicio</td>
-                <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${servicio.nombre_servicio}</td></tr>
+                <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${esc(servicio.nombre_servicio)}</td></tr>
             <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Fecha</td>
                 <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${fechaFormateada}</td></tr>
             <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Hora</td>
@@ -290,7 +297,7 @@ async function enviarEmailBarberoNuevoTurno({ barberia, turno, cliente, servicio
           </p>` : ''}
         </td></tr>
         <tr><td style="background:#f9fafb;padding:16px 32px;text-align:center;border-top:1px solid #e5e7eb;">
-          <p style="margin:0;font-size:12px;color:#9ca3af;">${barberia.nombre_negocio} · Sistema de turnos online</p>
+          <p style="margin:0;font-size:12px;color:#9ca3af;">${esc(barberia.nombre_negocio)} · Sistema de turnos online</p>
         </td></tr>
       </table>
     </td></tr>
@@ -299,9 +306,9 @@ async function enviarEmailBarberoNuevoTurno({ barberia, turno, cliente, servicio
 </html>`;
 
     await enviarEmail({
-        from: `${barberia.nombre_negocio} <onboarding@resend.dev>`,
+        from: `${linea(barberia.nombre_negocio)} <onboarding@resend.dev>`,
         to: barbero.correo_electronico,
-        subject: `Nuevo turno — ${cliente.nombre_completo} el ${fechaFormateada}`,
+        subject: `Nuevo turno — ${linea(cliente.nombre_completo)} el ${fechaFormateada}`,
         html, barberia,
     });
 }
@@ -311,7 +318,7 @@ async function enviarEmailRecuperacion({ correo, nombre, token, BASE_URL, barber
     const html = `
     <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#fff;">
       <h2 style="font-size:20px;color:#111827;margin-bottom:8px;">Recuperar contraseña</h2>
-      <p style="color:#6b7280;font-size:14px;margin-bottom:24px;">Hola ${nombre}, recibimos una solicitud para resetear tu contraseña.</p>
+      <p style="color:#6b7280;font-size:14px;margin-bottom:24px;">Hola ${esc(nombre)}, recibimos una solicitud para resetear tu contraseña.</p>
       <a href="${url}" style="display:inline-block;background:#d4a843;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:14px;">Cambiar contraseña</a>
       <p style="color:#9ca3af;font-size:12px;margin-top:24px;">Este link expira en 1 hora. Si no solicitaste este cambio, ignorá este mensaje.</p>
     </div>`;
@@ -335,18 +342,18 @@ async function enviarEmailRecordatorio({ barberia, turno, cliente, servicio, bar
     <tr><td align="center">
       <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
         <tr><td style="background:#1a1a1f;padding:28px 32px;text-align:center;">
-          <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">${barberia.nombre_negocio}</h1>
+          <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">${esc(barberia.nombre_negocio)}</h1>
           <p style="margin:6px 0 0;color:#d4a843;font-size:13px;">Recordatorio de turno</p>
         </td></tr>
         <tr><td style="padding:32px;">
           <p style="margin:0 0 20px;font-size:15px;color:#374151;">
-            Hola <strong>${cliente.nombre_completo}</strong>, te recordamos que mañana tenés un turno.
+            Hola <strong>${esc(cliente.nombre_completo)}</strong>, te recordamos que mañana tenés un turno.
           </p>
           <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border-radius:8px;padding:20px;margin-bottom:20px;">
             <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Servicio</td>
-                <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${servicio?.nombre_servicio ?? ''}</td></tr>
+                <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${esc(servicio?.nombre_servicio ?? '')}</td></tr>
             <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Barbero</td>
-                <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${barbero?.nombre_completo ?? ''}</td></tr>
+                <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${esc(barbero?.nombre_completo ?? '')}</td></tr>
             <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Fecha</td>
                 <td style="padding:6px 0;font-size:14px;color:#111827;font-weight:600;text-align:right;">${fechaFormateada}</td></tr>
             <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;">Hora</td>
@@ -355,7 +362,7 @@ async function enviarEmailRecordatorio({ barberia, turno, cliente, servicio, bar
           <p style="font-size:13px;color:#6b7280;text-align:center;">Si no podés asistir, contactá al negocio para cancelar tu turno.</p>
         </td></tr>
         <tr><td style="background:#f9fafb;padding:16px 32px;text-align:center;border-top:1px solid #e5e7eb;">
-          <p style="margin:0;font-size:12px;color:#9ca3af;">${barberia.nombre_negocio} · Sistema de turnos online</p>
+          <p style="margin:0;font-size:12px;color:#9ca3af;">${esc(barberia.nombre_negocio)} · Sistema de turnos online</p>
         </td></tr>
       </table>
     </td></tr>
@@ -364,9 +371,9 @@ async function enviarEmailRecordatorio({ barberia, turno, cliente, servicio, bar
 </html>`;
 
     await enviarEmail({
-        from: `${barberia.nombre_negocio} <onboarding@resend.dev>`,
+        from: `${linea(barberia.nombre_negocio)} <onboarding@resend.dev>`,
         to: cliente.correo_electronico,
-        subject: `Recordatorio: tu turno mañana — ${barberia.nombre_negocio}`,
+        subject: `Recordatorio: tu turno mañana — ${linea(barberia.nombre_negocio)}`,
         html, barberia,
     });
 }
@@ -385,8 +392,8 @@ async function enviarEmailCalificacion({ barberia, turno, cliente, barbero, link
         <h1 style="margin:0;font-size:22px;font-weight:700;color:#c9a227;">⭐ ¿Cómo estuvo tu visita?</h1>
       </div>
       <div style="padding:28px 32px;">
-        <p style="margin:0 0 12px;font-size:15px;">Hola <strong>${nombreCliente}</strong>,</p>
-        <p style="margin:0 0 20px;font-size:14px;color:#aaa;">Gracias por visitar <strong style="color:#f0f0f0;">${nombreBarberia}</strong>. Nos gustaría saber cómo fue tu experiencia con <strong style="color:#c9a227;">${nombreBarbero}</strong>.</p>
+        <p style="margin:0 0 12px;font-size:15px;">Hola <strong>${esc(nombreCliente)}</strong>,</p>
+        <p style="margin:0 0 20px;font-size:14px;color:#aaa;">Gracias por visitar <strong style="color:#f0f0f0;">${esc(nombreBarberia)}</strong>. Nos gustaría saber cómo fue tu experiencia con <strong style="color:#c9a227;">${esc(nombreBarbero)}</strong>.</p>
         <div style="text-align:center;margin:28px 0;">
           <a href="${linkCalificar}" style="display:inline-block;background:#c9a227;color:#0d0d0d;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:700;font-size:15px;">
             Calificar mi turno
@@ -396,8 +403,8 @@ async function enviarEmailCalificacion({ barberia, turno, cliente, barbero, link
       </div>
     </div>`;
 
-    const subject = `¿Cómo estuvo tu visita a ${nombreBarberia}?`;
-    await enviarEmail({ from: `${nombreBarberia} <noreply@brevo.com>`, to: cliente.correo_electronico, subject, html, barberia });
+    const subject = `¿Cómo estuvo tu visita a ${linea(nombreBarberia)}?`;
+    await enviarEmail({ from: `${linea(nombreBarberia)} <noreply@brevo.com>`, to: cliente.correo_electronico, subject, html, barberia });
 }
 
 module.exports = { enviarConfirmacionTurno, enviarCancelacionTurno, enviarEmailPromo, enviarEmailRecuperacion, enviarEmailBarberoNuevoTurno, enviarEmailRecordatorio, enviarEmailCalificacion };

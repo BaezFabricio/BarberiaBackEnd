@@ -4,6 +4,10 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const cron = require('node-cron');
 const { Op } = require('sequelize');
+const { fechaAR, horaAR, sumarDias } = require('./src/utils/fechas');
+
+// Los cron se disparan en hora argentina aunque el servidor corra en UTC.
+const TZ_AR = 'America/Argentina/Buenos_Aires';
 const sequelize = require('./config/database');
 const { iniciarWhatsApp } = require('./src/services/whatsappService');
 require('dotenv').config();
@@ -17,31 +21,51 @@ app.set('trust proxy', 1);
 // Headers de seguridad HTTP
 app.use(helmet());
 
-// CORS — acepta orígenes configurados + cualquier subdominio de Vercel del proyecto
-const originesPermitidos = (process.env.FRONTEND_URL ?? 'http://localhost:3001').split(',').map(u => u.trim());
+// CORS — solo orígenes conocidos. La sesión va en el header Authorization (no hay cookies), así que
+// no se habilitan credenciales. En producción localhost no está permitido.
+const esProduccion = process.env.NODE_ENV === 'production';
+const originesPermitidos = (process.env.FRONTEND_URL ?? (esProduccion ? '' : 'http://localhost:3001'))
+    .split(',').map(u => u.trim()).filter(Boolean);
+// En SaaS cada barbería tiene su subdominio: ORIGEN_PERMITIDO_REGEX acepta, por ejemplo,
+// ^https://[a-z0-9-]+\.tudominio\.com$  (anclada, para que no coincida con tudominio.com.atacante.com).
+const ORIGEN_REGEX = process.env.ORIGEN_PERMITIDO_REGEX ? new RegExp(process.env.ORIGEN_PERMITIDO_REGEX) : null;
+// Más simple: DOMINIO_BASE=barberias.example.com acepta https://barberias.example.com y un nivel de
+// subdominio (https://fenix.barberias.example.com), nada más.
+const DOMINIO_BASE = (process.env.DOMINIO_BASE ?? '').trim().toLowerCase();
+if (DOMINIO_BASE && !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(DOMINIO_BASE)) {
+    throw new Error('DOMINIO_BASE no es un dominio válido (ejemplo: barberias.example.com).');
+}
+const ORIGEN_DOMINIO = DOMINIO_BASE
+    ? new RegExp('^https://([a-z0-9-]+\\.)?' + DOMINIO_BASE.split('.').join('\\.') + '$')
+    : null;
 const VERCEL_PROJECT_PATTERN = process.env.VERCEL_PROJECT_PATTERN ? new RegExp(process.env.VERCEL_PROJECT_PATTERN) : null;
 app.use(cors({
     origin: (origin, callback) => {
-        if (!origin) return callback(null, true);
+        if (!origin) return callback(null, true); // llamadas que no vienen de un navegador
         if (originesPermitidos.includes(origin)) return callback(null, true);
-        if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return callback(null, true);
+        if (!esProduccion && /^https?:\/\/localhost(:\d+)?$/.test(origin)) return callback(null, true);
+        if (ORIGEN_REGEX && ORIGEN_REGEX.test(origin)) return callback(null, true);
+        if (ORIGEN_DOMINIO && ORIGEN_DOMINIO.test(origin)) return callback(null, true);
         if (VERCEL_PROJECT_PATTERN && VERCEL_PROJECT_PATTERN.test(origin)) return callback(null, true);
-        callback(new Error('CORS: origen no permitido'));
+        callback(Object.assign(new Error('CORS: origen no permitido'), { code: 'CORS_ORIGEN' }));
     },
-    credentials: true,
 }));
 
 app.use(express.json());
 
 // Rate limiting — login y reserva pública
-const limitLogin = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, message: { error: 'Demasiados intentos, esperá 15 minutos.' } });
-const limitReserva = rateLimit({ windowMs: 60 * 1000, max: 10, message: { error: 'Demasiadas solicitudes, esperá un momento.' } });
+const limitLogin = rateLimit({ windowMs: 15 * 60 * 1000, max: Number(process.env.LIMITE_LOGIN) || 20, message: { error: 'Demasiados intentos, esperá 15 minutos.' } });
+const limitReserva = rateLimit({ windowMs: 60 * 1000, max: Number(process.env.LIMITE_RESERVAS_POR_MIN) || 10, message: { error: 'Demasiadas solicitudes, esperá un momento.' } });
+// Recuperar y resetear contraseña comparten el mismo cupo por IP: 5 pedidos cada 15 minutos.
+const limitRecuperar = rateLimit({ windowMs: 15 * 60 * 1000, max: 5, message: { error: 'Demasiados intentos, esperá 15 minutos.' } });
 
 // Rutas públicas (registro, login)
 const publicRoutes = require('./src/routes/publicRoutes');
 app.use('/api/public/login', limitLogin);
 app.use('/api/public/registro', limitLogin);
 app.use('/api/public/reserva', limitReserva);
+app.use('/api/public/recuperar-password', limitRecuperar);
+app.use('/api/public/resetear-password', limitRecuperar);
 app.use('/api/public', publicRoutes);
 
 // Rutas protegidas (requieren JWT)
@@ -63,6 +87,17 @@ app.get('/health', async (req, res) => {
     }
 });
 
+// Ruta inexistente y errores no controlados: siempre JSON, sin detalles internos ni trazas.
+app.use((req, res) => res.status(404).json({ error: 'Ruta no encontrada.' }));
+app.use((err, req, res, next) => {
+    if (res.headersSent) return next(err);
+    if (err?.code === 'CORS_ORIGEN') return res.status(403).json({ error: 'Origen no permitido.' });
+    if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'El cuerpo del pedido no es un JSON válido.' });
+    if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'El pedido es demasiado grande.' });
+    console.error('Error no controlado:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
+});
+
 // ── Cron: transiciones automáticas de estado ──────────────────────────────────
 function iniciarCron() {
     const AgendaTurno = require('./src/models/AgendaTurno');
@@ -71,13 +106,15 @@ function iniciarCron() {
     cron.schedule('*/5 * * * *', async () => {
         try {
             const ahora = new Date();
-            const fechaHoy = ahora.toISOString().split('T')[0];
-            const horaActual = ahora.toTimeString().slice(0, 8); // HH:MM:SS
+            // fecha y hora de los turnos son horario argentino: se comparan contra la hora argentina,
+            // no contra la zona del servidor (en la nube es UTC y los turnos se marcaban ausentes 3 h antes).
+            const fechaHoy = fechaAR(ahora);
+            const horaActual = horaAR(ahora); // HH:MM:SS
 
             // 1. pendiente/confirmado → ausente: 1 hora de gracia tras hora_inicio
             const unaHoraAtras = new Date(ahora.getTime() - 60 * 60 * 1000);
-            const horaLimite = unaHoraAtras.toTimeString().slice(0, 8);
-            const fechaLimite = unaHoraAtras.toISOString().split('T')[0];
+            const horaLimite = horaAR(unaHoraAtras);
+            const fechaLimite = fechaAR(unaHoraAtras);
             await AgendaTurno.update(
                 { estado: 'ausente' },
                 {
@@ -127,7 +164,7 @@ function iniciarCron() {
         } catch (err) {
             console.error('Cron error:', err.message);
         }
-    });
+    }, { timezone: TZ_AR });
 
     console.log('⏰ Cron de transiciones de turnos activo (cada 5 min)');
 
@@ -142,9 +179,7 @@ function iniciarCron() {
             const Persona = require('./src/models/Persona');
             const Cliente = require('./src/models/Cliente');
 
-            const manana = new Date();
-            manana.setDate(manana.getDate() + 1);
-            const fechaManana = manana.toISOString().split('T')[0];
+            const fechaManana = sumarDias(fechaAR(), 1);
 
             const turnos = await AgendaTurno.findAll({
                 where: { fecha: fechaManana, estado: 'confirmado' },
@@ -182,7 +217,7 @@ function iniciarCron() {
         } catch (err) {
             console.error('Cron recordatorio error:', err.message);
         }
-    });
+    }, { timezone: TZ_AR });
 
     console.log('📱 Cron de recordatorios activo (10:00 AM diario — email + WhatsApp)');
 

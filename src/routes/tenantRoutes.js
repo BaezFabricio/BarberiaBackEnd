@@ -1,6 +1,8 @@
 const { Router } = require('express');
 const { authMiddleware, soloRoles } = require('../middlewares/authMiddleware');
 const tenantMiddleware = require('../middlewares/tenantMiddleware');
+const { fechaAR, sumarDias, inicioDiaAR, finDiaAR, primerDiaMesAR } = require('../utils/fechas');
+const { validarPassword } = require('../utils/password');
 
 const servicioCtrl = require('../controllers/servicioController');
 const clienteCtrl = require('../controllers/clienteController');
@@ -19,7 +21,12 @@ require('../models/PagoServicio'); // registra asociación AgendaTurno <-> PagoS
 const VentaProducto = require('../models/VentaProducto');
 const Producto = require('../models/Producto');
 const Cliente = require('../models/Cliente');
-const { makeUpload } = require('../middlewares/uploadMiddleware');
+const { makeUpload, mensajeDeError, descartarSubidas, borrarDeCloudinary } = require('../middlewares/uploadMiddleware');
+
+const enviarErrorDeSubida = (res, err) => { const m = mensajeDeError(err); return res.status(m.status).json({ error: m.error }); };
+// Tope de imágenes por barbería: sin él, una cuenta podría llenar el almacenamiento.
+const MAX_IMAGENES_CARRUSEL = 12;
+const MAX_IMAGENES_GALERIA = 40;
 
 const router = Router();
 
@@ -91,8 +98,9 @@ router.put('/mi-perfil', async (req, res) => {
 // ── Cambio de contraseña ──────────────────────────────────────────────────────
 router.put('/mi-perfil/password', async (req, res) => {
     const { password_actual, password_nueva } = req.body;
-    if (!password_actual || !password_nueva) return res.status(400).json({ error: 'Faltan campos.' });
-    if (password_nueva.length < 6) return res.status(400).json({ error: 'La contraseña nueva debe tener al menos 6 caracteres.' });
+    if (typeof password_actual !== 'string' || !password_actual || !password_nueva) return res.status(400).json({ error: 'Faltan campos.' });
+    const errorPassword = validarPassword(password_nueva);
+    if (errorPassword) return res.status(400).json({ error: errorPassword });
     try {
         const usuario = await Usuario.findByPk(req.usuario.idusuario);
         const valida = await bcrypt.compare(password_actual, usuario.password_hash);
@@ -180,6 +188,11 @@ router.put('/mi-barberia', soloRoles('admin'), async (req, res) => {
             if (SECRETOS.includes(f) && b[f] === '') return; // '' = sin cambios; null sí borra
             updates[f] = b[f];
         });
+        // El mapa se muestra como <iframe src="...">: solo se admite la URL de embed de Google Maps.
+        // Cualquier otra cosa (un javascript:, HTML pegado) podría ejecutar código en el landing público.
+        if (updates.maps_embed && !/^https:\/\/www\.google\.com\/maps\/embed\?[^\s"'<>]{1,700}$/.test(updates.maps_embed)) {
+            return res.status(400).json({ error: 'La URL del mapa no es válida: copiá solo el src del embed de Google Maps (https://www.google.com/maps/embed?...).' });
+        }
         await EmpresaBarberia.update(updates, { where: { idbarberia: req.usuario.idbarberia } });
         res.json({ mensaje: 'Configuración actualizada.' });
     } catch (err) {
@@ -211,6 +224,8 @@ router.post('/barberos', soloRoles('admin'), async (req, res) => {
     if (!nombre_completo || !telefono || !correo_electronico || !password) {
         return res.status(400).json({ error: 'nombre_completo, telefono, correo_electronico y password son obligatorios.' });
     }
+    const errorPassword = validarPassword(password);
+    if (errorPassword) return res.status(400).json({ error: errorPassword });
     const t = await sequelize.transaction();
     try {
         const persona = await Persona.create(
@@ -267,6 +282,7 @@ router.patch('/barberos/:id/estado', soloRoles('admin'), async (req, res) => {
             where: { idusuario: req.params.id }
         });
         if (!barbero) return res.status(404).json({ error: 'Barbero no encontrado.' });
+        if (!['activo', 'inactivo'].includes(req.body.estado)) return res.status(400).json({ error: 'Estado inválido.' });
         await barbero.update({ estado: req.body.estado });
         res.json({ mensaje: 'Estado actualizado.' });
     } catch (error) {
@@ -283,6 +299,8 @@ router.patch('/barberos/:id/password', soloRoles('admin'), async (req, res) => {
         });
         if (!barbero) return res.status(404).json({ error: 'Barbero no encontrado.' });
         const bcrypt = require('bcryptjs');
+        const errorPassword = validarPassword(req.body.password);
+        if (errorPassword) return res.status(400).json({ error: errorPassword });
         const hash = await bcrypt.hash(req.body.password, 10);
         await barbero.update({ password_hash: hash });
         res.json({ mensaje: 'Contraseña actualizada.' });
@@ -452,9 +470,7 @@ router.get('/clientes/inactivos', soloRoles('admin'), async (req, res) => {
         const AgendaTurno = require('../models/AgendaTurno');
         const barberia = await EmpresaBarberia.findOne({ where: { idbarberia: req.usuario.idbarberia } });
         const dias = barberia?.dias_inactividad ?? 60;
-        const limite = new Date();
-        limite.setDate(limite.getDate() - dias);
-        const limiteStr = limite.toISOString().split('T')[0];
+        const limiteStr = sumarDias(fechaAR(), -Number(dias));
 
         // Clientes que tienen al menos un turno en esta barbería
         const turnosUnicos = await AgendaTurno.findAll({
@@ -605,8 +621,8 @@ router.get('/pagos', soloRoles('admin', 'barbero'), async (req, res) => {
         const where = { idbarberia: req.usuario.idbarberia, archivado: false };
         if (desde || hasta) {
             where.fecha_pago = {};
-            if (desde) where.fecha_pago[Op.gte] = new Date(desde + 'T00:00:00');
-            if (hasta) where.fecha_pago[Op.lte] = new Date(hasta + 'T23:59:59');
+            if (desde) where.fecha_pago[Op.gte] = inicioDiaAR(desde);
+            if (hasta) where.fecha_pago[Op.lte] = finDiaAR(hasta);
         }
         const pagos = await PagoServicio.findAll({
             where,
@@ -699,9 +715,9 @@ router.get('/pagos/resumen', soloRoles('admin'), async (req, res) => {
     try {
         const PagoServicio = require('../models/PagoServicio');
         const { desde, hasta } = req.query;
-        const hoy = new Date().toISOString().split('T')[0];
-        const desdeFecha = new Date((desde ?? hoy) + 'T00:00:00');
-        const hastaFecha = new Date((hasta ?? hoy) + 'T23:59:59');
+        const hoy = fechaAR();
+        const desdeFecha = inicioDiaAR(desde ?? hoy);
+        const hastaFecha = finDiaAR(hasta ?? hoy);
         const [pagos, ventas] = await Promise.all([
             PagoServicio.findAll({
                 where: { idbarberia: req.usuario.idbarberia, archivado: false, fecha_pago: { [Op.between]: [desdeFecha, hastaFecha] } },
@@ -726,9 +742,9 @@ router.get('/comisiones', soloRoles('admin'), async (req, res) => {
         const PagoServicio = require('../models/PagoServicio');
         const AgendaTurno  = require('../models/AgendaTurno');
         const { desde, hasta } = req.query;
-        const hoy = new Date().toISOString().split('T')[0];
-        const desdeFecha = new Date((desde ?? hoy) + 'T00:00:00');
-        const hastaFecha = new Date((hasta ?? hoy) + 'T23:59:59');
+        const hoy = fechaAR();
+        const desdeFecha = inicioDiaAR(desde ?? hoy);
+        const hastaFecha = finDiaAR(hasta ?? hoy);
 
         const pagos = await PagoServicio.findAll({
             where: { idbarberia: req.usuario.idbarberia, archivado: false, fecha_pago: { [Op.between]: [desdeFecha, hastaFecha] } },
@@ -778,8 +794,8 @@ router.get('/ventas', soloRoles('admin', 'barbero'), async (req, res) => {
         const where = { idbarberia: req.usuario.idbarberia, archivado: false };
         if (desde || hasta) {
             where.fecha_venta = {};
-            if (desde) where.fecha_venta[Op.gte] = new Date(desde + 'T00:00:00');
-            if (hasta) where.fecha_venta[Op.lte] = new Date(hasta + 'T23:59:59');
+            if (desde) where.fecha_venta[Op.gte] = inicioDiaAR(desde);
+            if (hasta) where.fecha_venta[Op.lte] = finDiaAR(hasta);
         }
         if (req.usuario.rol === 'barbero') where.idusuario_barbero = req.usuario.idusuario;
         const ventas = await VentaProducto.findAll({
@@ -800,6 +816,9 @@ router.post('/ventas', soloRoles('admin', 'barbero'), async (req, res) => {
     try {
         const { idproducto, cantidad, metodo_pago } = req.body;
         if (!idproducto || !cantidad || !metodo_pago) { await t.rollback(); return res.status(400).json({ error: 'Faltan campos.' }); }
+        // Una cantidad negativa o decimal alteraría el stock y el monto: solo enteros >= 1.
+        if (!Number.isInteger(Number(cantidad)) || Number(cantidad) < 1) { await t.rollback(); return res.status(400).json({ error: 'Cantidad inválida.' }); }
+        if (!['efectivo', 'transferencia', 'tarjeta'].includes(metodo_pago)) { await t.rollback(); return res.status(400).json({ error: 'Método de pago inválido.' }); }
         const producto = await Producto.findOne({ where: { idproducto, idbarberia: req.usuario.idbarberia }, transaction: t });
         if (!producto) { await t.rollback(); return res.status(404).json({ error: 'Producto no encontrado.' }); }
         if (producto.stock_actual < cantidad) { await t.rollback(); return res.status(400).json({ error: `Stock insuficiente. Disponible: ${producto.stock_actual}` }); }
@@ -827,10 +846,10 @@ router.get('/reportes', soloRoles('admin'), async (req, res) => {
     try {
         const AgendaTurno = require('../models/AgendaTurno');
         const PagoServicio = require('../models/PagoServicio');
-        const hoy = new Date().toISOString().split('T')[0];
-        const { desde = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], hasta = hoy } = req.query;
-        const desdeDT = new Date(desde + 'T00:00:00');
-        const hastaDT = new Date(hasta + 'T23:59:59');
+        const hoy = fechaAR();
+        const { desde = primerDiaMesAR(), hasta = hoy } = req.query;
+        const desdeDT = inicioDiaAR(desde);
+        const hastaDT = finDiaAR(hasta);
         const idbarberia = req.usuario.idbarberia;
 
         // Pagos del período
@@ -873,11 +892,11 @@ router.get('/reportes', soloRoles('admin'), async (req, res) => {
         // ── Ingresos por día ──
         const ingresosPorDia = {};
         pagos.forEach(p => {
-            const dia = new Date(p.fecha_pago).toISOString().split('T')[0];
+            const dia = fechaAR(new Date(p.fecha_pago));
             ingresosPorDia[dia] = (ingresosPorDia[dia] ?? 0) + parseFloat(p.monto_pago);
         });
         ventas.forEach(v => {
-            const dia = new Date(v.fecha_venta).toISOString().split('T')[0];
+            const dia = fechaAR(new Date(v.fecha_venta));
             ingresosPorDia[dia] = (ingresosPorDia[dia] ?? 0) + parseFloat(v.monto_total);
         });
 
@@ -988,11 +1007,23 @@ router.get('/gastos', soloRoles('admin'), async (req, res) => {
     } catch (err) { console.error(err); res.status(500).json({ error: 'Error interno.' }); }
 });
 
+// El barbero de un gasto viene del body: tiene que ser de la barbería de la sesión.
+async function barberoDeLaBarberia(idusuario, idbarberia) {
+    const u = await Usuario.findOne({
+        where: { idusuario },
+        include: [{ model: Persona, where: { idbarberia }, attributes: ['idpersona'] }],
+        attributes: ['idusuario'],
+    });
+    return Boolean(u);
+}
+
 router.post('/gastos', soloRoles('admin'), async (req, res) => {
     try {
         const { descripcion, monto, categoria_gasto, fecha_gasto, idusuario_barbero } = req.body;
         if (!descripcion || !monto || !categoria_gasto || !fecha_gasto)
             return res.status(400).json({ error: 'Faltan campos.' });
+        if (idusuario_barbero && !(await barberoDeLaBarberia(idusuario_barbero, req.usuario.idbarberia)))
+            return res.status(404).json({ error: 'Barbero no encontrado.' });
         const g = await Gastos.create({
             idbarberia: req.usuario.idbarberia,
             descripcion, monto, categoria_gasto, fecha_gasto,
@@ -1007,6 +1038,8 @@ router.put('/gastos/:id', soloRoles('admin'), async (req, res) => {
         const g = await Gastos.findOne({ where: { idgasto: req.params.id, idbarberia: req.usuario.idbarberia } });
         if (!g) return res.status(404).json({ error: 'No encontrado.' });
         const { descripcion, monto, categoria_gasto, fecha_gasto, idusuario_barbero } = req.body;
+        if (idusuario_barbero && !(await barberoDeLaBarberia(idusuario_barbero, req.usuario.idbarberia)))
+            return res.status(404).json({ error: 'Barbero no encontrado.' });
         await g.update({ descripcion, monto, categoria_gasto, fecha_gasto, idusuario_barbero: idusuario_barbero || null });
         res.json(g);
     } catch (err) { console.error(err); res.status(500).json({ error: 'Error interno.' }); }
@@ -1096,7 +1129,7 @@ router.post('/notificaciones/prueba-whatsapp', soloRoles('admin', 'owner'), asyn
 // Foto propia del barbero (cualquier barbero puede subir la suya)
 router.post('/mi-perfil/foto', (req, res) => {
     makeUpload('barberos').single(req, res, async (err) => {
-        if (err) return res.status(400).json({ error: err.message });
+        if (err) return enviarErrorDeSubida(res, err);
         if (!req.file) return res.status(400).json({ error: 'No se recibió ninguna imagen.' });
         try {
             const usuario = await Usuario.findByPk(req.usuario.idusuario);
@@ -1114,7 +1147,7 @@ router.post('/mi-perfil/foto', (req, res) => {
 // Logo de la barbería
 router.post('/mi-barberia/logo', soloRoles('admin'), (req, res, next) => {
     makeUpload('logos').single(req, res, async (err) => {
-        if (err) return res.status(400).json({ error: err.message });
+        if (err) return enviarErrorDeSubida(res, err);
         if (!req.file) return res.status(400).json({ error: 'No se recibió ninguna imagen.' });
         try {
             await EmpresaBarberia.update(
@@ -1136,13 +1169,26 @@ router.get('/carrusel', soloRoles('admin'), async (req, res) => {
     res.json(imgs);
 });
 
-router.post('/carrusel', soloRoles('admin'), (req, res) => {
+router.post('/carrusel', soloRoles('admin'), async (req, res) => {
+    let actuales;
+    try {
+        actuales = await ImagenCarrusel.count({ where: { idbarberia: req.usuario.idbarberia } });
+    } catch (e) {
+        return res.status(500).json({ error: 'Error interno.' });
+    }
+    if (actuales >= MAX_IMAGENES_CARRUSEL) {
+        return res.status(409).json({ error: `El carrusel ya tiene el máximo de ${MAX_IMAGENES_CARRUSEL} imágenes.` });
+    }
     makeUpload('carrusel').multiple(req, res, async (err) => {
-        if (err) return res.status(400).json({ error: err.message });
+        if (err) return enviarErrorDeSubida(res, err);
         const files = req.files ?? [];
         if (files.length === 0) return res.status(400).json({ error: 'No se recibieron imágenes.' });
+        if (actuales + files.length > MAX_IMAGENES_CARRUSEL) {
+            await descartarSubidas(files);
+            return res.status(409).json({ error: `El carrusel admite hasta ${MAX_IMAGENES_CARRUSEL} imágenes: te quedan ${MAX_IMAGENES_CARRUSEL - actuales}.` });
+        }
         try {
-            let count = await ImagenCarrusel.count({ where: { idbarberia: req.usuario.idbarberia } });
+            let count = actuales;
             const imgs = await Promise.all(files.map(f => ImagenCarrusel.create({ idbarberia: req.usuario.idbarberia, url: f.path, orden: count++ })));
             res.json(imgs);
         } catch (e) { res.status(500).json({ error: 'Error al guardar imágenes.' }); }
@@ -1153,22 +1199,26 @@ router.delete('/carrusel/:id', soloRoles('admin'), async (req, res) => {
     try {
         const img = await ImagenCarrusel.findOne({ where: { idimagen: req.params.id, idbarberia: req.usuario.idbarberia } });
         if (!img) return res.status(404).json({ error: 'Imagen no encontrada.' });
-        const { cloudinary } = require('../middlewares/uploadMiddleware');
-        const publicId = img.url.split('/').slice(-2).join('/').replace(/\.[^.]+$/, '');
-        try { await cloudinary.uploader.destroy(publicId); } catch {}
+        await borrarDeCloudinary(img.url);
         await img.destroy();
         res.json({ mensaje: 'Imagen eliminada.' });
     } catch (e) { res.status(500).json({ error: 'Error al eliminar imagen.' }); }
 });
 
 // Foto de servicio
-router.post('/servicios/:id/imagen', soloRoles('admin'), (req, res, next) => {
+router.post('/servicios/:id/imagen', soloRoles('admin'), async (req, res) => {
+    // Primero se comprueba que el servicio sea de esta barbería y recién después se sube nada.
+    let servicio;
+    try {
+        servicio = await Servicio.findOne({ where: { idservicio: req.params.id, idbarberia: req.usuario.idbarberia } });
+    } catch (e) {
+        return res.status(500).json({ error: 'Error interno.' });
+    }
+    if (!servicio) return res.status(404).json({ error: 'Servicio no encontrado.' });
     makeUpload('servicios').single(req, res, async (err) => {
-        if (err) return res.status(400).json({ error: err.message });
+        if (err) return enviarErrorDeSubida(res, err);
         if (!req.file) return res.status(400).json({ error: 'No se recibió ninguna imagen.' });
         try {
-            const servicio = await Servicio.findOne({ where: { idservicio: req.params.id, idbarberia: req.usuario.idbarberia } });
-            if (!servicio) return res.status(404).json({ error: 'Servicio no encontrado.' });
             await servicio.update({ imagen_url: req.file.path });
             res.json({ imagen_url: req.file.path });
         } catch (e) {
@@ -1178,16 +1228,22 @@ router.post('/servicios/:id/imagen', soloRoles('admin'), (req, res, next) => {
 });
 
 // Foto de barbero
-router.post('/barberos/:id/foto', soloRoles('admin'), (req, res, next) => {
+router.post('/barberos/:id/foto', soloRoles('admin'), async (req, res) => {
+    // Primero se comprueba que el barbero sea de esta barbería y recién después se sube nada.
+    let barbero;
+    try {
+        barbero = await Usuario.findOne({
+            include: [{ model: Persona, where: { idbarberia: req.usuario.idbarberia } }],
+            where: { idusuario: req.params.id },
+        });
+    } catch (e) {
+        return res.status(500).json({ error: 'Error interno.' });
+    }
+    if (!barbero) return res.status(404).json({ error: 'Barbero no encontrado.' });
     makeUpload('barberos').single(req, res, async (err) => {
-        if (err) return res.status(400).json({ error: err.message });
+        if (err) return enviarErrorDeSubida(res, err);
         if (!req.file) return res.status(400).json({ error: 'No se recibió ninguna imagen.' });
         try {
-            const barbero = await Usuario.findOne({
-                include: [{ model: Persona, where: { idbarberia: req.usuario.idbarberia } }],
-                where: { idusuario: req.params.id },
-            });
-            if (!barbero) return res.status(404).json({ error: 'Barbero no encontrado.' });
             await Persona.update(
                 { foto_url: req.file.path },
                 { where: { idpersona: barbero.idpersona } }
@@ -1210,11 +1266,24 @@ router.get('/galeria', soloRoles('admin'), async (req, res) => {
     res.json(imgs.map(i => ({ idimagen: i.idimagen, url: i.url_imagen })));
 });
 
-router.post('/galeria', soloRoles('admin'), (req, res) => {
+router.post('/galeria', soloRoles('admin'), async (req, res) => {
+    let actuales;
+    try {
+        actuales = await ImagenesGaleriaT.count({ where: { idbarberia: req.usuario.idbarberia, tipo_seccion: 'landing_galeria' } });
+    } catch (e) {
+        return res.status(500).json({ error: 'Error interno.' });
+    }
+    if (actuales >= MAX_IMAGENES_GALERIA) {
+        return res.status(409).json({ error: `La galería ya tiene el máximo de ${MAX_IMAGENES_GALERIA} imágenes.` });
+    }
     makeUpload('galeria').multiple(req, res, async (err) => {
-        if (err) return res.status(400).json({ error: err.message });
+        if (err) return enviarErrorDeSubida(res, err);
         const files = req.files ?? [];
         if (files.length === 0) return res.status(400).json({ error: 'No se recibieron imágenes.' });
+        if (actuales + files.length > MAX_IMAGENES_GALERIA) {
+            await descartarSubidas(files);
+            return res.status(409).json({ error: `La galería admite hasta ${MAX_IMAGENES_GALERIA} imágenes: te quedan ${MAX_IMAGENES_GALERIA - actuales}.` });
+        }
         try {
             const imgs = await Promise.all(files.map(f =>
                 ImagenesGaleriaT.create({ idbarberia: req.usuario.idbarberia, url_imagen: f.path, tipo_seccion: 'landing_galeria' })
@@ -1228,9 +1297,7 @@ router.delete('/galeria/:id', soloRoles('admin'), async (req, res) => {
     try {
         const img = await ImagenesGaleriaT.findOne({ where: { idimagen: req.params.id, idbarberia: req.usuario.idbarberia, tipo_seccion: 'landing_galeria' } });
         if (!img) return res.status(404).json({ error: 'Imagen no encontrada.' });
-        const { cloudinary } = require('../middlewares/uploadMiddleware');
-        const publicId = img.url_imagen.split('/').slice(-2).join('/').replace(/\.[^.]+$/, '');
-        try { await cloudinary.uploader.destroy(publicId); } catch {}
+        await borrarDeCloudinary(img.url_imagen);
         await img.destroy();
         res.json({ mensaje: 'Imagen eliminada.' });
     } catch (e) { res.status(500).json({ error: 'Error al eliminar imagen.' }); }

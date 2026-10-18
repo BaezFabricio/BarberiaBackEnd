@@ -1,4 +1,5 @@
 const sequelize = require('../../config/database');
+const { Transaction } = require('sequelize');
 const AgendaTurno = require('../models/AgendaTurno');
 const Servicio = require('../models/Servicio');
 const Cliente = require('../models/Cliente');
@@ -55,8 +56,44 @@ const crear = async (req, res) => {
     if (!idusuario_barbero || !idservicio || !fecha || !hora_inicio || !hora_fin) {
         return res.status(400).json({ error: 'idusuario_barbero, idservicio, fecha, hora_inicio y hora_fin son obligatorios.' });
     }
-    const t = await sequelize.transaction();
+    // READ COMMITTED: tras tomar el candado del barbero, las lecturas ven lo que otro pedido acaba de confirmar.
+    const t = await sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED });
     try {
+        // idservicio, idusuario_barbero, idcliente y servicios_ids vienen del cliente:
+        // se comprueba que los cuatro pertenezcan a la barbería de la sesión.
+        const idbarberia = req.usuario.idbarberia;
+        const servicio = await Servicio.findOne({
+            where: { idservicio, idbarberia },
+            attributes: ['idservicio', 'nombre_servicio', 'duracion_minutos', 'precio'],
+            transaction: t,
+        });
+        if (!servicio) { await t.rollback(); return res.status(404).json({ error: 'Servicio no encontrado.' }); }
+
+        if (servicios_ids) {
+            const unicos = [...new Set(servicios_ids.map(Number))];
+            const validos = unicos.every(n => Number.isInteger(n));
+            const propios = validos ? await Servicio.count({ where: { idservicio: unicos, idbarberia }, transaction: t }) : -1;
+            if (propios !== unicos.length) { await t.rollback(); return res.status(404).json({ error: 'Servicio no encontrado.' }); }
+        }
+
+        const barberoValidado = await Usuario.findOne({
+            where: { idusuario: idusuario_barbero },
+            include: [{ model: Persona, where: { idbarberia }, attributes: ['nombre_completo'] }],
+            transaction: t,
+        });
+        if (!barberoValidado) { await t.rollback(); return res.status(404).json({ error: 'Barbero no encontrado.' }); }
+        // Candado del barbero: dos altas del mismo barbero se ejecutan una detrás de otra.
+        await Usuario.findOne({ where: { idusuario: idusuario_barbero }, attributes: ['idusuario'], transaction: t, lock: t.LOCK.UPDATE });
+
+        if (idcliente) {
+            const clienteValidado = await Cliente.findOne({
+                where: { idcliente },
+                include: [{ model: Persona, where: { idbarberia }, attributes: ['nombre_completo'] }],
+                transaction: t,
+            });
+            if (!clienteValidado) { await t.rollback(); return res.status(404).json({ error: 'Cliente no encontrado.' }); }
+        }
+
         // Verificar conflicto de horario para el barbero
         const { Op } = require('sequelize');
         const conflicto = await AgendaTurno.findOne({
@@ -107,13 +144,15 @@ const crear = async (req, res) => {
 
         // Envíos según configuración de la barbería
         const barberia = await EmpresaBarberia.findByPk(req.usuario.idbarberia);
-        const servicio = await Servicio.findByPk(idservicio, { attributes: ['nombre_servicio', 'duracion_minutos', 'precio'] });
 
         // notif_nueva_reserva: email de confirmación al cliente
         if (barberia?.notif_nueva_reserva && clienteId) {
             try {
-                const clienteRow = await Cliente.findByPk(clienteId, { include: [{ model: Persona, attributes: ['nombre_completo', 'correo_electronico', 'telefono'] }] });
-                const barberoRow = await Usuario.findByPk(idusuario_barbero, { include: [{ model: Persona, attributes: ['nombre_completo'] }] });
+                const clienteRow = await Cliente.findOne({
+                    where: { idcliente: clienteId },
+                    include: [{ model: Persona, where: { idbarberia }, attributes: ['nombre_completo', 'correo_electronico', 'telefono'] }],
+                });
+                const barberoRow = barberoValidado;
                 // enviarConfirmacionTurno espera objeto plano, no modelo Sequelize
                 const clientePlano = {
                     nombre_completo:    clienteRow?.persona?.nombre_completo ?? nombre_cliente ?? 'Cliente',

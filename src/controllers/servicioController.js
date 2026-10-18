@@ -1,5 +1,7 @@
 const Servicio = require('../models/Servicio');
 
+const CAMPOS_EDITABLES = ['nombre_servicio', 'descripcion', 'precio', 'duracion_minutos', 'estado'];
+
 const listar = async (req, res) => {
     try {
         const servicios = await Servicio.findAll({
@@ -42,7 +44,16 @@ const actualizar = async (req, res) => {
         if (req.body.duracion_minutos !== undefined && Number(req.body.duracion_minutos) < 30) {
             return res.status(400).json({ error: 'La duración mínima es 30 minutos.' });
         }
-        await servicio.update(req.body);
+        // Lista blanca: nunca se acepta idbarberia, idservicio, imagen_url ni otros campos del body.
+        const cambios = {};
+        for (const campo of CAMPOS_EDITABLES) if (req.body[campo] !== undefined) cambios[campo] = req.body[campo];
+        if (cambios.estado !== undefined && !['activo', 'inactivo'].includes(cambios.estado)) {
+            return res.status(400).json({ error: 'Estado inválido.' });
+        }
+        if (cambios.precio !== undefined && !(Number(cambios.precio) >= 0)) {
+            return res.status(400).json({ error: 'Precio inválido.' });
+        }
+        await servicio.update(cambios);
         res.json(servicio);
     } catch (error) {
         console.error('Error al actualizar servicio:', error);

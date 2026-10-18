@@ -1,72 +1,33 @@
-const jwt = require('jsonwebtoken');
 const EmpresaBarberia = require('../models/EmpresaBarberia');
+const { subdominiosDelPedido } = require('../utils/subdominio');
 
-// Extrae el subdominio del header Host (ej: "barberstudio.tuapp.com" → "barberstudio")
-const extraerSubdominio = (host = '') => {
-    const partes = host.split('.');
-    // Solo hay subdominio si el host tiene más de 2 partes (ej: sub.dominio.com)
-    if (partes.length >= 3) return partes[0];
-    return null;
-};
-
+// Corre después de authMiddleware. La barbería sale SIEMPRE del token: el host y el
+// header X-Tenant-Subdomain son datos del cliente y solo se usan para comprobar que
+// coincidan con ella, nunca para elegirla. Así un token de A no puede operar "como" B,
+// y una barbería suspendida no se reactiva usando el dominio de otra.
 const tenantMiddleware = async (req, res, next) => {
     try {
-        let idbarberia = null;
+        const idbarberia = req.usuario?.idbarberia;
+        if (!idbarberia) return res.status(403).json({ error: 'Barbería no identificada.' });
 
-        // Modo single-tenant: carga la barbería fija sin resolver subdominio
-        if (process.env.SINGLE_TENANT_ID) {
-            const barberia = await EmpresaBarberia.findOne({
-                where: { idbarberia: Number(process.env.SINGLE_TENANT_ID), estado_cuenta: 'activo' },
-            });
-            if (barberia) { req.tenant = barberia; return next(); }
+        const barberia = await EmpresaBarberia.findByPk(idbarberia);
+        if (!barberia) return res.status(403).json({ error: 'Barbería no identificada.' });
+
+        if (barberia.estado_cuenta !== 'activo') {
+            return res.status(403).json({ error: 'El acceso al panel está suspendido.', suspendida: true });
         }
 
-        // Estrategia 1: subdominio en el Host header
-        const subdominio = extraerSubdominio(req.headers.host);
-        if (subdominio && subdominio !== 'www') {
-            const barberia = await EmpresaBarberia.findOne({ where: { subdominio, estado_cuenta: 'activo' } });
-            if (barberia) {
-                req.tenant = barberia;
-                return next();
+        for (const subdominio of subdominiosDelPedido(req)) {
+            const delPedido = await EmpresaBarberia.findOne({ where: { subdominio }, attributes: ['idbarberia'] });
+            // Si el subdominio no es de ninguna barbería (dominio propio, localhost) no hay nada que comparar.
+            if (delPedido && delPedido.idbarberia !== barberia.idbarberia) {
+                return res.status(403).json({ error: 'La sesión no corresponde a esta barbería.' });
             }
         }
 
-        // Estrategia 2: idbarberia dentro del JWT (para desarrollo en localhost)
-        const authHeader = req.headers.authorization;
-        if (authHeader && authHeader.startsWith('Bearer ')) {
-            const token = authHeader.slice(7);
-            const payload = jwt.verify(token, process.env.JWT_SECRET);
-            idbarberia = payload.idbarberia;
-
-            const barberia = await EmpresaBarberia.findOne({ where: { idbarberia, estado_cuenta: 'activo' } });
-            if (barberia) {
-                req.tenant = barberia;
-                return next();
-            }
-        }
-
-        // Hasta acá no se encontró ninguna barbería *activa*. Se vuelve a buscar
-        // ignorando el estado para poder distinguir "no identificada" de
-        // "suspendida" y que el panel muestre una pantalla propia.
-        const idSingle = process.env.SINGLE_TENANT_ID ? Number(process.env.SINGLE_TENANT_ID) : null;
-        const existente =
-            (idSingle && await EmpresaBarberia.findOne({ where: { idbarberia: idSingle } })) ||
-            (subdominio && await EmpresaBarberia.findOne({ where: { subdominio } })) ||
-            (idbarberia && await EmpresaBarberia.findOne({ where: { idbarberia } })) ||
-            null;
-
-        if (existente) {
-            return res.status(403).json({
-                error: 'El acceso al panel está suspendido.',
-                suspendida: true,
-            });
-        }
-
-        return res.status(403).json({ error: 'Barbería no identificada.' });
+        req.tenant = barberia;
+        next();
     } catch (error) {
-        if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
-            return res.status(401).json({ error: 'Token inválido o expirado.' });
-        }
         console.error('Error en tenantMiddleware:', error);
         res.status(500).json({ error: 'Error interno del servidor.' });
     }

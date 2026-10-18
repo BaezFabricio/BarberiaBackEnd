@@ -1,5 +1,7 @@
 const Producto = require('../models/Producto');
 
+const CAMPOS_EDITABLES = ['nombre_producto', 'descripcion', 'categoria', 'precio_venta', 'stock_actual', 'stock_minimo'];
+
 const listar = async (req, res) => {
     try {
         const productos = await Producto.findAll({
@@ -39,7 +41,15 @@ const actualizar = async (req, res) => {
         });
         if (!producto) return res.status(404).json({ error: 'Producto no encontrado.' });
 
-        await producto.update(req.body);
+        // Lista blanca: nunca se acepta idbarberia, idproducto ni otros campos del body.
+        const cambios = {};
+        for (const campo of CAMPOS_EDITABLES) if (req.body[campo] !== undefined) cambios[campo] = req.body[campo];
+        for (const numerico of ['precio_venta', 'stock_actual', 'stock_minimo']) {
+            if (cambios[numerico] !== undefined && !(Number(cambios[numerico]) >= 0)) {
+                return res.status(400).json({ error: `${numerico} inválido.` });
+            }
+        }
+        await producto.update(cambios);
         res.json(producto);
     } catch (error) {
         console.error('Error al actualizar producto:', error);

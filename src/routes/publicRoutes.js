@@ -1,5 +1,6 @@
 const { Router } = require('express');
-const { Op } = require('sequelize');
+const { Op, Transaction } = require('sequelize');
+const { fechaAR } = require('../utils/fechas');
 const crypto = require('crypto');
 const sequelize = require('../../config/database');
 const { registro, login } = require('../controllers/authController');
@@ -14,8 +15,13 @@ const TurnoToken = require('../models/TurnoToken');
 const { enviarConfirmacionTurno, enviarCancelacionTurno, enviarEmailBarberoNuevoTurno } = require('../services/emailService');
 const ValoracionBarbero = require('../models/ValoracionBarbero');
 const { notificarClienteNuevoTurno, notificarBarberoNuevoTurno } = require('../services/whatsappService');
+const { barberiaDelPedido } = require('../utils/subdominio');
+const { validarPassword } = require('../utils/password');
 
 const router = Router();
+
+// Los tokens de restablecimiento se guardan hasheados: en la base nunca queda uno que sirva tal cual.
+const hashToken = token => crypto.createHash('sha256').update(String(token)).digest('hex');
 
 // ── Caché en memoria ──────────────────────────────────────────────────────────
 const _cache = new Map();
@@ -36,6 +42,7 @@ function cacheInvalidar(idbarberia) {
 
 // Resuelve la barbería activa por subdominio o por SINGLE_TENANT_ID si no se pasa subdominio
 async function resolverBarberia(subdominio, { transaction } = {}) {
+    if (subdominio !== undefined && typeof subdominio !== 'string') return null; // ?subdominio[a]=1 llega como objeto
     // Solo cachear cuando no hay transacción activa
     if (!transaction) {
         const cacheKey = subdominio
@@ -64,6 +71,7 @@ async function resolverBarberia(subdominio, { transaction } = {}) {
 // Igual que resolverBarberia pero sin filtrar por estado_cuenta: sirve para
 // distinguir "no existe" de "existe pero está suspendida" y dar un mensaje útil.
 async function buscarIgnorandoEstado(subdominio) {
+    if (subdominio !== undefined && typeof subdominio !== 'string') return null;
     if (subdominio) return EmpresaBarberia.findOne({ where: { subdominio } });
     if (process.env.SINGLE_TENANT_ID) {
         return EmpresaBarberia.findOne({ where: { idbarberia: Number(process.env.SINGLE_TENANT_ID) } });
@@ -71,9 +79,12 @@ async function buscarIgnorandoEstado(subdominio) {
     return null;
 }
 
+// PUBLICA: alta de barberías nuevas; está cerrada en esta instalación y siempre responde 403
 router.post('/registro', registro);
+// PUBLICA: inicio de sesión; limitado a 20 intentos cada 15 min
 router.post('/login', login);
 
+// PUBLICA: fotos de la galería del landing público de la barbería
 router.get('/galeria', async (req, res) => {
     const { subdominio } = req.query;
     try {
@@ -93,6 +104,7 @@ router.get('/galeria', async (req, res) => {
     } catch { res.json([]); }
 });
 
+// PUBLICA: imágenes del carrusel del landing público
 router.get('/carrusel', async (req, res) => {
     const { subdominio } = req.query;
     try {
@@ -110,6 +122,7 @@ router.get('/carrusel', async (req, res) => {
 });
 
 // Devuelve los datos públicos de una barbería: info, servicios activos y barberos activos
+// PUBLICA: datos públicos del landing: info del negocio, servicios y barberos activos
 router.get('/barberia', async (req, res) => {
   try {
     const { subdominio } = req.query;
@@ -211,6 +224,7 @@ router.get('/barberia', async (req, res) => {
 
 // Devuelve los horarios disponibles de un barbero para una fecha y servicio
 // ?subdominio=X&barbero_id=X&fecha=YYYY-MM-DD&idservicio=X
+// PUBLICA: horarios libres para reservar sin tener cuenta
 router.get('/disponibilidad', async (req, res) => {
   try {
     const { subdominio, barbero_id, fecha, idservicio } = req.query;
@@ -225,6 +239,14 @@ router.get('/disponibilidad', async (req, res) => {
       attributes: ['duracion_minutos'],
     });
     if (!servicio) return res.status(404).json({ error: 'Servicio no encontrado' });
+
+    // El barbero tiene que ser de esta barbería: si no, se estaría exponiendo el horario de otra.
+    const barberoPropio = await Usuario.findOne({
+      where: { idusuario: barbero_id, estado: 'activo' },
+      include: [{ model: Persona, where: { idbarberia: barberia.idbarberia }, attributes: ['idpersona'] }],
+      attributes: ['idusuario'],
+    });
+    if (!barberoPropio) return res.status(404).json({ error: 'Barbero no encontrado' });
 
     const duracion = servicio.duracion_minutos;
 
@@ -267,8 +289,10 @@ router.get('/disponibilidad', async (req, res) => {
 });
 
 // Crea una reserva pública (sin autenticación)
+// PUBLICA: reserva online sin cuenta; limitada a 10 por minuto
 router.post('/reserva', async (req, res) => {
-  const t = await sequelize.transaction();
+  // READ COMMITTED: tras tomar el candado del barbero, las lecturas ven lo que otro pedido acaba de confirmar.
+  const t = await sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED });
   try {
     const { subdominio, idservicio, servicios_adicionales, idusuario_barbero, fecha, hora_inicio, nombre_cliente, correo_electronico } = req.body;
     // Normalizar teléfono: solo dígitos, sin código de país argentino
@@ -277,8 +301,25 @@ router.post('/reserva', async (req, res) => {
     else if (telefono_cliente.startsWith('54')) telefono_cliente = telefono_cliente.slice(2);
     if (telefono_cliente.startsWith('0')) telefono_cliente = telefono_cliente.slice(1);
 
-    if (!idservicio || !idusuario_barbero || !fecha || !hora_inicio || !nombre_cliente || !telefono_cliente)
+    // Toda salida antes de terminar la transacción tiene que cerrarla: una transacción abierta retiene una
+    // conexión del pool y con 10 pedidos mal formados la API deja de responder.
+    if (!idservicio || !idusuario_barbero || !fecha || !hora_inicio || !nombre_cliente || !telefono_cliente) {
+      await t.rollback();
       return res.status(400).json({ error: 'Faltan campos obligatorios' });
+    }
+    const horaSolicitada = String(hora_inicio).slice(0, 5);
+    const esEntero = v => typeof v !== 'object' && Number.isInteger(Number(v));
+    if (!esEntero(idservicio) || !esEntero(idusuario_barbero) || typeof fecha !== 'string' || typeof nombre_cliente !== 'string'
+        || !/^\d{4}-\d{2}-\d{2}$/.test(fecha) || Number.isNaN(Date.parse(`${fecha}T12:00:00Z`))
+        || !/^([01]\d|2[0-3]):[0-5]\d$/.test(horaSolicitada)
+        || nombre_cliente.length > 100 || telefono_cliente.length > 20) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Datos inválidos' });
+    }
+    if (fecha < fechaAR()) {
+      await t.rollback();
+      return res.status(400).json({ error: 'La fecha ya pasó' });
+    }
 
     const barberia = await resolverBarberia(subdominio, { transaction: t });
     if (!barberia) { await t.rollback(); return res.status(404).json({ error: 'Barbería no encontrada' }); }
@@ -305,11 +346,32 @@ router.post('/reserva', async (req, res) => {
     }
 
     const barbero = await Usuario.findOne({
-      where: { idusuario: idusuario_barbero, rol: { [Op.in]: ['barbero', 'admin', 'owner'] } },
+      where: { idusuario: idusuario_barbero, estado: 'activo', rol: { [Op.in]: ['barbero', 'admin', 'owner'] } },
       include: [{ model: Persona, where: { idbarberia: barberia.idbarberia }, attributes: ['nombre_completo', 'telefono', 'foto_url', 'correo_electronico'] }],
       transaction: t,
     });
     if (!barbero) { await t.rollback(); return res.status(404).json({ error: 'Barbero no encontrado' }); }
+
+    // Candado del barbero: dos reservas del mismo barbero se ejecutan una detrás de otra.
+    await Usuario.findOne({ where: { idusuario: barbero.idusuario }, attributes: ['idusuario'], transaction: t, lock: t.LOCK.UPDATE });
+
+    // La hora tiene que ser un horario que /disponibilidad realmente ofrece: dentro del horario de atención y libre.
+    const dbDia = new Date(`${fecha}T12:00:00Z`).getUTCDay() || 7; // DB: 1=Lun ... 7=Dom
+    const horariosDelDia = await HorariosAtencion.findAll({ where: { idusuario_barbero: barbero.idusuario, dia_semana: dbDia }, transaction: t });
+    const rangos = horariosDelDia.map(h => ({ apertura: h.hora_apertura.slice(0, 5), cierre: h.hora_cierre.slice(0, 5) }));
+    const ocupadosDelDia = await AgendaTurno.findAll({
+      where: { idusuario_barbero: barbero.idusuario, idbarberia: barberia.idbarberia, fecha, estado: { [Op.notIn]: ['cancelado', 'archivado'] } },
+      attributes: ['hora_inicio', 'hora_fin'],
+      transaction: t,
+    });
+    if (!generarSlots(rangos, servicio.duracion_minutos, [], fecha).includes(horaSolicitada)) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Ese horario no está entre los que ofrece la barbería' });
+    }
+    if (!generarSlots(rangos, servicio.duracion_minutos, ocupadosDelDia, fecha).includes(horaSolicitada)) {
+      await t.rollback();
+      return res.status(409).json({ error: 'Ese horario ya no está disponible' });
+    }
 
     // Calcular hora_fin sumando la duración de todos los servicios
     const [h, m] = hora_inicio.split(':').map(Number);
@@ -431,6 +493,7 @@ router.post('/reserva', async (req, res) => {
 });
 
 // Confirmar turno desde email
+// PUBLICA: enlace del email del cliente; se autentica con un token de un solo uso
 router.get('/turno/confirmar', async (req, res) => {
   try {
     const { token } = req.query;
@@ -451,6 +514,7 @@ router.get('/turno/confirmar', async (req, res) => {
 });
 
 // Cancelar turno desde email
+// PUBLICA: enlace del email del cliente; se autentica con un token de un solo uso
 router.get('/turno/cancelar', async (req, res) => {
   try {
     const { token } = req.query;
@@ -501,20 +565,28 @@ router.get('/turno/cancelar', async (req, res) => {
 });
 
 // ── Recuperar contraseña ──────────────────────────────────────────────────────
+// PUBLICA: recuperación de contraseña; limitada a 5 pedidos cada 15 min por IP
 router.post('/recuperar-password', async (req, res) => {
     try {
         const { correo_electronico } = req.body;
         if (!correo_electronico) return res.status(400).json({ error: 'Email requerido.' });
 
-        const persona = await Persona.findOne({ where: { correo_electronico } });
-        if (!persona) return res.json({ mensaje: 'Si el email existe, recibirás un link.' });
+        // El usuario se busca dentro de la barbería del pedido (el mismo correo puede existir en
+        // varias). Sin barbería resuelta y con más de una coincidencia no se sabe a cuál mandar:
+        // se responde igual que si no existiera y no se envía nada.
+        const barberiaPedido = await barberiaDelPedido(req);
+        const candidatos = await Usuario.findAll({
+            where: { rol: 'admin' },
+            include: [{ model: Persona, where: { correo_electronico, ...(barberiaPedido ? { idbarberia: barberiaPedido.idbarberia } : {}) } }],
+        });
+        if (candidatos.length !== 1) return res.json({ mensaje: 'Si el email existe, recibirás un link.' });
+        const usuario = candidatos[0];
+        const persona = usuario.persona;
 
-        const usuario = await Usuario.findOne({ where: { idpersona: persona.idpersona, rol: 'admin' } });
-        if (!usuario) return res.json({ mensaje: 'Si el email existe, recibirás un link.' });
-
+        // Al email va el token; en la base queda solo su hash, para que una filtración de la base no sirva para entrar.
         const token = crypto.randomBytes(32).toString('hex');
         const expira = new Date(Date.now() + 60 * 60 * 1000); // 1 hora
-        await usuario.update({ reset_token: token, reset_token_expira: expira });
+        await usuario.update({ reset_token: hashToken(token), reset_token_expira: expira });
 
         const { enviarEmailRecuperacion } = require('../services/emailService');
         const BASE_URL = process.env.FRONTEND_URL ?? 'http://localhost:3001';
@@ -528,13 +600,16 @@ router.post('/recuperar-password', async (req, res) => {
     }
 });
 
+// PUBLICA: restablecer contraseña con el token (hasheado, de 1 h y un solo uso); comparte el límite de 5 cada 15 min
 router.post('/resetear-password', async (req, res) => {
     try {
         const { token, password_nueva } = req.body;
         if (!token || !password_nueva) return res.status(400).json({ error: 'Datos incompletos.' });
-        if (password_nueva.length < 6) return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres.' });
+        if (typeof token !== 'string' || typeof password_nueva !== 'string') return res.status(400).json({ error: 'Datos incompletos.' });
+        const errorPassword = validarPassword(password_nueva);
+        if (errorPassword) return res.status(400).json({ error: errorPassword });
 
-        const usuario = await Usuario.findOne({ where: { reset_token: token } });
+        const usuario = await Usuario.findOne({ where: { reset_token: hashToken(token) } });
         if (!usuario || !usuario.reset_token_expira) return res.status(400).json({ error: 'Token inválido.' });
         if (new Date() > usuario.reset_token_expira) return res.status(400).json({ error: 'El link expiró. Solicitá uno nuevo.' });
 
@@ -598,6 +673,7 @@ function generarSlots(rangos, duracionMin, turnosOcupados, fecha) {
 // ── Valoraciones ─────────────────────────────────────────────────────────────
 
 // GET info del token antes de calificar (para mostrar nombre del barbero en la página)
+// PUBLICA: enlace del email posterior al turno; se autentica con token
 router.get('/calificar/:token', async (req, res) => {
     try {
         const val = await ValoracionBarbero.findOne({ where: { token: req.params.token } });
@@ -617,6 +693,7 @@ router.get('/calificar/:token', async (req, res) => {
 });
 
 // POST calificar con token (desde email)
+// PUBLICA: enlace del email posterior al turno; se autentica con token
 router.post('/calificar/:token', async (req, res) => {
     try {
         const { estrellas, comentario } = req.body;
@@ -634,6 +711,7 @@ router.post('/calificar/:token', async (req, res) => {
 });
 
 // POST calificar desde el landing (sin token)
+// PUBLICA: valoración pública de un barbero
 router.post('/valorar', async (req, res) => {
     try {
         const { idusuario_barbero, idbarberia, nombre_cliente, estrellas, comentario } = req.body;
@@ -653,6 +731,7 @@ router.post('/valorar', async (req, res) => {
 });
 
 // GET últimas valoraciones de un barbero (para mostrar reseñas en landing)
+// PUBLICA: reseñas públicas de un barbero para el landing
 router.get('/valoraciones/:idusuario', async (req, res) => {
     try {
         const vals = await ValoracionBarbero.findAll({
@@ -668,6 +747,7 @@ router.get('/valoraciones/:idusuario', async (req, res) => {
 });
 
 // GET reseñas de la barbería
+// PUBLICA: reseñas públicas de la barbería para el landing
 router.get('/resenas-barberia', async (req, res) => {
     try {
         const barberia = await resolverBarberia(req.query.subdominio);
@@ -685,6 +765,7 @@ router.get('/resenas-barberia', async (req, res) => {
 });
 
 // POST nueva reseña de la barbería
+// PUBLICA: reseña pública de la barbería
 router.post('/resena-barberia', async (req, res) => {
     try {
         const { estrellas, comentario, nombre_cliente, subdominio } = req.body;
