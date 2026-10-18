@@ -4,8 +4,10 @@
   "description": "",
   "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "test": "npm run test:aislamiento",
+    "start": "node server.js",
+    "test:aislamiento": "node --test --test-concurrency=1 test/fechas.test.js test/emails.test.js test/aislamiento.test.js",
+    "auditar": "node scripts/auditar-rutas.js"
   },
   "keywords": [],
   "author": "",
